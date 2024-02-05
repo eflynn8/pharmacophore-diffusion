@@ -94,3 +94,6 @@ def get_batch_idxs(g: dgl.DGLHeteroGraph) -> Dict[str, torch.Tensor]:
 
     return batch_idxs
 
+def save_model(model, output_file: Path):
+    torch.save(model.state_dict(), str(output_file))
+

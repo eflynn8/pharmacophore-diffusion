@@ -94,13 +94,15 @@ class PharmRecGVP(nn.Module):
 class PharmRecDynamicsGVP(nn.Module):
 
     def __init__(self, n_pharm_scalars, n_prot_scalars, vector_size: int = 16, n_convs=4, n_hidden_scalars=128, act_fn=nn.SiLU,
-                 message_norm=1,  graph_cutoffs: dict = {}, n_message_gvps: int = 3, n_update_gvps: int = 2, n_noise_gvps: int = 3, dropout: float = 0.0):
+                 message_norm=1,  graph_cutoffs: dict = {}, n_message_gvps: int = 3, n_update_gvps: int = 2, n_noise_gvps: int = 3, dropout: float = 0.0, ff_k: int = 0, pf_k: int = 0):
         
         super().__init__()
         self.graph_cutoffs = graph_cutoffs
         self.n_pharm_scalars = n_pharm_scalars
         self.n_prot_scalars = n_prot_scalars
         self.vector_size = vector_size
+        self.ff_k=ff_k
+        self.pf_k=pf_k
 
         self.pharm_encoder = nn.Sequential(
             nn.Linear(n_pharm_scalars+1, n_hidden_scalars),
@@ -187,11 +189,17 @@ class PharmRecDynamicsGVP(nn.Module):
         batch_size = g.batch_size
 
         # add pharm-pharm edges
-        ff_idxs = radius_graph(g.nodes['pharm'].data['x_0'], r=self.graph_cutoffs['ff'], batch=pharm_batch_idx, max_num_neighbors=200)
+        if self.ff_k > 0:
+            ff_idxs = knn_graph(g.nodes['pharm'].data['x_0'], k=self.ff_k, batch=pharm_batch_idx)
+        else:
+            ff_idxs = radius_graph(g.nodes['pharm'].data['x_0'], r=self.graph_cutoffs['ff'], batch=pharm_batch_idx, max_num_neighbors=200)
         g.add_edges(ff_idxs[0], ff_idxs[1], etype='ff')
 
         # add prot-pharm edges
-        pf_idxs = radius(x=g.nodes['pharm'].data['x_0'], y=g.nodes['prot'].data['x_0'], batch_x=pharm_batch_idx, batch_y=prot_batch_idx, r=self.graph_cutoffs['pf'], max_num_neighbors=100)
+        if self.pf_k > 0:
+            pf_idxs = knn_graph(g.nodes['pharm'].data['x_0'], k=self.pf_k, batch=pharm_batch_idx)
+        else:     
+            pf_idxs = radius(x=g.nodes['pharm'].data['x_0'], y=g.nodes['prot'].data['x_0'], batch_x=pharm_batch_idx, batch_y=prot_batch_idx, r=self.graph_cutoffs['pf'], max_num_neighbors=100)
         g.add_edges(pf_idxs[0], pf_idxs[1], etype='pf')
 
         # add pharm-prot edges  

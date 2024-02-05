@@ -1,9 +1,10 @@
 from math import ceil
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import dgl
 import dgl.function as dglfn
+from lightning.pytorch.utilities.types import STEP_OUTPUT, OptimizerLRScheduler
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,14 +14,16 @@ from torch_scatter import segment_coo, segment_csr
 from losses.dist_hinge_loss import DistanceHingeLoss
 from models.dynamics_gvp import PharmRecDynamicsGVP
 from models.n_nodes_dist import PharmSizeDistribution
+from models.scheduler import Scheduler
 from utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from torch_scatter import segment_csr
 import lightning as L
 
 class PharmacophoreDiff(L.LightningModule):
 
-    def __init__(self, pharm_nf, rec_nf, processed_dataset_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, precision=1e-4, pharm_feat_norm_constant=1, pf_dist_threshold=0, use_fake_atoms=False):
+    def __init__(self, config, pharm_nf, rec_nf, processed_dataset_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, precision=1e-4, pharm_feat_norm_constant=1, pf_dist_threshold=0, use_fake_atoms=False):
         super().__init__()
+        self.config=config
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
         self.n_timesteps = n_timesteps
@@ -40,6 +43,10 @@ class PharmacophoreDiff(L.LightningModule):
         self.gamma = PredefinedNoiseSchedule(noise_schedule='polynomial_2', timesteps=n_timesteps, precision=precision)
 
         self.dynamics = PharmRecDynamicsGVP(pharm_nf,rec_nf,**graph_config,**dynamics_config)
+
+        self.lr_scheduler = Scheduler(model=self, base_lr=self.config['training']['learning_rate'], **self.config['training']['scheduler'])
+
+        self.save_hyperparameters()
     
     def normalize(self, protpharm_graphs: dgl.DGLHeteroGraph):
         protpharm_graphs.nodes['pharm'].data['h_0'] = protpharm_graphs.nodes['pharm'].data['h_0'] / self.pharm_feat_norm_constant
@@ -207,13 +214,40 @@ class PharmacophoreDiff(L.LightningModule):
             n_x_loss_terms = eps['x'].numel()
 
         h_loss = (eps['h'] - eps_h_pred).square().sum()
-        losses['l2'] = (x_loss + h_loss) / (n_x_loss_terms + eps['h'].numel())
 
         losses['pos'] = x_loss / n_x_loss_terms
         losses['feat'] = h_loss / eps['h'].numel()
 
         return losses
     
+    def num_training_batches(self):
+        return len(self.trainer.train_dataloader)
+    
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(
+        self.parameters(), 
+        lr=self.config["training"]['learning_rate'],
+        weight_decay=self.config["training"]['weight_decay'])
+        return optimizer
+
+    def training_step(self, batch, batch_idx):
+        protpharm_graphs = batch
+        current_epoch = self.current_epoch + batch_idx / self.num_training_batches()
+        self.lr_scheduler.step_lr(current_epoch, self.optimizers())
+        loss_dict = self.forward(protpharm_graphs)
+        loss_dict['total loss'] = torch.sum(loss_dict.values())
+        self.log_dict(loss_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True)
+        return loss_dict['total loss']
+    
+    def validation_step(self, batch, batch_idx):
+        protpharm_graphs = batch
+        loss_dict = self.forward(protpharm_graphs)
+        loss_dict['total loss'] = torch.sum(loss_dict.values())
+        self.log_dict(loss_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True)
+        return loss_dict['total loss']
+    
+
+        
     
 
         
