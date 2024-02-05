@@ -17,13 +17,13 @@ from models.n_nodes_dist import PharmSizeDistribution
 from models.scheduler import Scheduler
 from utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from torch_scatter import segment_csr
-import lightning as L
+import pytorch_lightning as pl
 
-class PharmacophoreDiff(L.LightningModule):
 
-    def __init__(self, config, pharm_nf, rec_nf, processed_dataset_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, precision=1e-4, pharm_feat_norm_constant=1, pf_dist_threshold=0, use_fake_atoms=False):
+class PharmacophoreDiff(pl.LightningModule):
+
+    def __init__(self, pharm_nf, rec_nf, processed_dataset_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, precision=1e-4, pharm_feat_norm_constant=1, pf_dist_threshold=0, use_fake_atoms=False):
         super().__init__()
-        self.config=config
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
         self.n_timesteps = n_timesteps
