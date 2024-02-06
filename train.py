@@ -8,6 +8,8 @@ import dgl
 import numpy as np
 import torch
 import yaml
+from pathlib import Path
+import wandb
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, TQDMProgressBar
@@ -18,12 +20,14 @@ from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers import WandbLogger
 
 from config_utils.cmdline import register_hyperparameter_args, merge_config_and_args
+from config_utils.get_model import model_from_config
+from models.pharmacodiff import PharmacophoreDiff
 
 def parse_arguments():
     p = argparse.ArgumentParser()
 
     p.add_argument('--config', type=str, default=None)
-    p.add_argument('--resume', default=None)
+    p.add_argument('--resume', type=Path, default=None)
 
     # create a boolean argument for whether or not this is a debug run
     p.add_argument('--debug', action='store_true')
@@ -39,7 +43,7 @@ def parse_arguments():
 
     return args
     
-def main():
+if __name__ == '__main__':
 
     args = parse_arguments()
 
@@ -62,6 +66,7 @@ def main():
         ckpt_file = None
 
     # set seed
+    # TODO: put seed in config file
     if args.seed is not None:
         pl.seed_everything(args.seed)
     
@@ -76,5 +81,73 @@ def main():
 
 
     # TODO: instantiate model
+    model: PharmacophoreDiff = model_from_config(config)
 
+    # get wandb logger config
+    wandb_config = config['wandb']
 
+    # if this is a debug run, set the wandb logger mode to disabled
+    if args.debug:
+        wandb_config['mode'] = 'offline'
+        wandb_config['name'] = 'debug_run'
+
+    # if we are not resuming a run, generate a run_id
+    if args.resume is None:
+        run_id = wandb.util.generate_id()
+        wandb_config['id'] = run_id
+    else:
+        # we are resuming a run, so get the run_id from the resume file
+        run_id = config['resume']['run_id']
+        wandb_config['id'] = run_id
+        wandb_config['resume'] = 'must'
+
+    # create the logging directory if it doesn't exist
+    output_dir = Path(config['training']['output_dir'])
+    wandb_config['save_dir'] = str(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # create wandb logger
+    wandb_logger = WandbLogger(config=config, **wandb_config)
+
+    # save the config file to the run directory
+    # include the run_id so we can resume this run later
+    if args.resume is None and rank_zero_only.rank == 0:
+        wandb_logger.experiment
+        run_id = wandb_logger.experiment.id
+        config['resume'] = {}
+        config['resume']['run_id'] = run_id
+        config['wandb']['name'] = wandb_logger.experiment.name
+        run_dir = output_dir / f'{wandb_logger.experiment.name}_{run_id}'
+        run_dir.mkdir(parents=True, exist_ok=True)
+        print('Results are being written to: ', run_dir)
+        with open(run_dir / 'config.yaml', 'w') as f:
+            yaml.dump(config, f)
+
+    # create ModelCheckpoint callback
+    checkpoints_dir = run_dir / 'checkpoints'
+    checkpoint_config = config['checkpointing']
+    checkpoint_config['dirpath'] = str(checkpoints_dir)
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(**checkpoint_config)
+
+    # get pl trainer config
+    trainer_config = config['training']['trainer_args']
+
+    # compute the validation interval and add arguments for the pl.Trainer object accordingly
+    trainer_config['val_check_interval'] = config['training']['evaluation']['val_loss_interval']
+    trainer_config['check_val_every_n_epoch'] = 1
+
+    # if this is a debug run, set limit_train_batches to 10
+    if args.debug:
+        trainer_config['limit_train_batches'] = 100
+        
+    # set refresh rate for progress bar via TQDMProgressBar callback
+    if args.debug:
+        refresh_rate = 1
+    else:
+        refresh_rate = 20
+    pbar_callback = TQDMProgressBar(refresh_rate=refresh_rate)
+
+    trainer = pl.Trainer(logger=wandb_logger, **trainer_config, callbacks=[checkpoint_callback, pbar_callback])
+    
+    # train
+    trainer.fit(model, datamodule=data_module, ckpt_path=ckpt_file)

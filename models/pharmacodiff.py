@@ -4,17 +4,17 @@ from typing import Any, Dict, List, Tuple
 
 import dgl
 import dgl.function as dglfn
-from lightning.pytorch.utilities.types import STEP_OUTPUT, OptimizerLRScheduler
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as fn
+import torch.optim as optim
 from torch_scatter import segment_coo, segment_csr
 
 from losses.dist_hinge_loss import DistanceHingeLoss
 from models.dynamics_gvp import PharmRecDynamicsGVP
 from models.n_nodes_dist import PharmSizeDistribution
-from models.scheduler import Scheduler
+from models.scheduler import LRScheduler
 from utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from torch_scatter import segment_csr
 import pytorch_lightning as pl
@@ -22,29 +22,20 @@ import pytorch_lightning as pl
 
 class PharmacophoreDiff(pl.LightningModule):
 
-    def __init__(self, pharm_nf, rec_nf, processed_dataset_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, precision=1e-4, pharm_feat_norm_constant=1, pf_dist_threshold=0, use_fake_atoms=False):
+    def __init__(self, pharm_nf, rec_nf, processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
         self.n_timesteps = n_timesteps
         self.pharm_feat_norm_constant = pharm_feat_norm_constant
-        self.use_fake_atoms = use_fake_atoms
-
-        if pf_dist_threshold > 0:
-            self.apply_pf_hinge_loss = True
-            self.pf_hinge_loss_fn = DistanceHingeLoss(pf_dist_threshold)
-        else:
-            self.apply_pf_hinge_loss = False
 
         #TODO implement obtaining the pharmacophore size distribution from the dataset
-        self.pharm_size_dist = PharmSizeDistribution(processed_dataset_dir)
+        self.pharm_size_dist = PharmSizeDistribution(processed_data_dir)
 
         # create noise schedule and dynamics model
         self.gamma = PredefinedNoiseSchedule(noise_schedule='polynomial_2', timesteps=n_timesteps, precision=precision)
 
         self.dynamics = PharmRecDynamicsGVP(pharm_nf,rec_nf,**graph_config,**dynamics_config)
-
-        self.lr_scheduler = Scheduler(model=self, base_lr=self.config['training']['learning_rate'], **self.config['training']['scheduler'])
 
         self.save_hyperparameters()
     
@@ -139,28 +130,23 @@ class PharmacophoreDiff(pl.LightningModule):
 
         return g
     
-    def forward(self, protpharm_graphs: dgl.DGLHeteroGraph):
+    def forward(self, g: dgl.DGLHeteroGraph):
 
         losses = {}
         
         #normalize values
-        protpharm_graphs = self.normalize(protpharm_graphs)
+        g = self.normalize(g)
 
-        batch_size = protpharm_graphs.batch_size
-        device = protpharm_graphs.device
+        batch_size = g.batch_size
+        device = g.device
         
         # encode receptors
-        protpharm_graphs = self.encode_receptors(protpharm_graphs)
+        g = self.encode_receptors(g)
 
-        batch_idxs = get_batch_idxs(protpharm_graphs)
-
-        # if we are applying the RL hinge loss, we will need to be able to put receptor atoms and the pharmacophore into the same
-        # referance frame. in order to do this, we need the initial COM of the keypoints - TODO: need to check if this is necessary
-        if self.apply_pf_hinge_loss:
-            init_prot_com = dgl.readout_nodes(protpharm_graphs, feat='x_0', ntype='prot', op='mean')
+        batch_idxs = get_batch_idxs(g)
         
         # remove pharmacophore COM from receptor/ligand complex
-        protpharm_graphs = self.remove_com(protpharm_graphs, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
+        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
 
         # sample timepoints for each item in the batch
         t = torch.randint(0, self.n_timesteps, size=(batch_size,), device=device).float() # timesteps
@@ -168,54 +154,22 @@ class PharmacophoreDiff(pl.LightningModule):
 
         # sample epsilon for each ligand
         eps = {
-            'h':torch.randn(protpharm_graphs.nodes['pharm'].data['h_0'].shape, device=device),
-            'x':torch.randn(protpharm_graphs.nodes['pharm'].data['x_0'].shape, device=device)
+            'h':torch.randn(g.nodes['pharm'].data['h_0'].shape, device=device),
+            'x':torch.randn(g.nodes['pharm'].data['x_0'].shape, device=device)
         }
 
         # construct noisy versions of the ligand
         gamma_t = self.gamma(t).to(device=device)
-        protpharm_graphs = self.noised_representation(protpharm_graphs, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t)
+        g = self.noised_representation(g, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t)
 
         # predict the noise that was added
         #TODO predict feature class instead of noise, cross entropy loss on feature type
-        eps_h_pred, eps_x_pred = self.dynamics(protpharm_graphs, t, batch_idxs)
+        eps_h_pred, eps_x_pred = self.dynamics(g, t, batch_idxs)
 
-        # compute hinge loss if necessary
-        if self.apply_pf_hinge_loss:
-
-            with protpharm_graphs.local_scope():
-
-                # predict denoised ligand
-                g_denoised = self.denoised_representation(protpharm_graphs, batch_idxs['pharm'], batch_idxs['prot'], eps_x_pred, eps_h_pred, gamma_t)
-
-                # translate ligand back to intitial frame of reference
-                g_denoised = self.remove_com(g_denoised, batch_idxs['pharm'], batch_idxs['prot'], com='protein')
-                g_denoised.nodes['pharm'].data['x_0'] = g_denoised.nodes['pharm'].data['x_0'] + init_prot_com[batch_idxs['pharm']]
-
-                # compute hinge loss between ligand atom position and receptor atom positions
-                pf_hinge_loss = 0
-                for g in dgl.unbatch(g_denoised):
-                    denoised_pharm_pos = g.nodes['pharm'].data['x_0']
-                    prot_atom_pos = g.nodes['prot'].data['x_0']
-                    pf_hinge_loss += self.pf_hinge_loss_fn(denoised_pharm_pos, prot_atom_pos)
-
-                losses['rl_hinge'] = pf_hinge_loss
-
-        #compute l2 loss on noise
-        if self.use_fake_atoms:
-            # real_atom_mask = torch.concat([ ~(lig_feat[:, -1].bool()) for lig_feat in lig_atom_features ])[:, None]
-            real_atom_mask = protpharm_graphs.nodes['pharm'].data['h_0'][:, -1:].bool()
-            n_real_atoms = real_atom_mask.sum()
-            n_x_loss_terms = n_real_atoms*3
-            x_loss = ((eps['x'] - eps_x_pred)*real_atom_mask).square().sum() # mask out loss on predicted position of fake atoms
-
-        else:
-            x_loss = ((eps['x'] - eps_x_pred)).square().sum()
-            n_x_loss_terms = eps['x'].numel()
-
+        x_loss = ((eps['x'] - eps_x_pred)).square().sum()
         h_loss = (eps['h'] - eps_h_pred).square().sum()
 
-        losses['pos'] = x_loss / n_x_loss_terms
+        losses['pos'] = x_loss / eps['x'].numel()
         losses['feat'] = h_loss / eps['h'].numel()
 
         return losses
@@ -224,10 +178,11 @@ class PharmacophoreDiff(pl.LightningModule):
         return len(self.trainer.train_dataloader)
     
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(
-        self.parameters(), 
-        lr=self.config["training"]['learning_rate'],
-        weight_decay=self.config["training"]['weight_decay'])
+        optimizer = optim.Adam(self.parameters(), 
+                               lr=self.lr_scheduler_config['base_lr'],
+                               weight_decay=self.lr_scheduler_config['weight_decay']
+        )
+        self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
         return optimizer
 
     def training_step(self, batch, batch_idx):
@@ -246,12 +201,6 @@ class PharmacophoreDiff(pl.LightningModule):
         self.log_dict(loss_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True)
         return loss_dict['total loss']
     
-
-        
-    
-
-        
-
 
 # noise schedules are taken from DiffSBDD: https://github.com/arneschneuing/DiffSBDD
 def cosine_beta_schedule(timesteps, s=0.008, raise_to_power: float = 1):
