@@ -6,54 +6,101 @@ import math
 import dgl
 from dgl.dataloading import GraphDataLoader
 import torch
+import numpy as np
 
 from data_processing.pdbbind_processing import (build_initial_complex_graph,
                                                 get_pocket_atoms, parse_ligand,
                                                 parse_protein, get_ot_loss_weights)
 
-# TODO: with the current implementation of fake atoms, the code will not function properly if max_fake_atom_frac = 0
-
 class ProteinLigandDataset(dgl.data.DGLDataset):
 
     def __init__(self, name: str, 
         processed_data_file: str,
+        data_files: str,
+        rec_file: str,
         prot_elements: List[str],
-        pharm_elements: List[str],
         graph_cutoffs: dict,
-        pocket_cutoff: Union[int, float] = 4,
         load_data: bool = True,
         subsample_pharms: bool = False,
         **kwargs):
 
         self.graph_cutoffs = graph_cutoffs
+        self.prot_elements = prot_elements
 
-        # if load_data is false, we don't want to actually process any data
+        # If load_data is true, tensor will be constructed from data pkl files
         self.load_data = load_data
+        self.data_files = data_files
+        self.rec_file = rec_file
+
+        if self.load_data:
+            if not self.data_files or not self.rec_file:
+                raise ValueError('load_data set to True but no data or receptor files provided in config')
+            for file in self.data_files:
+                with open(file, 'rb') as f:
+                    data = pickle.load(f)
+                
+                ## Collect data entries into lists
+                rec_file_name = [prot[0] for prot in data]
+                lig_file_name = [ph[1] for ph in data]
+                lig_obj = [ph[2] for ph in data]
+                lig_pos_arr = [lig[3][0] for lig in data]
+                lig_feat_arr = [lig[3][1] for lig in data]
+                rec_pos_arr = [rec[4][0] for rec in data]
+                rec_feat_arr = [rec[4][1] for rec in data]
+
+                ## Convert lig_feat_arr and lig_pos_arr into single list
+                ## And encode pharmacophore feats as one-hot
+                lig_idx = []
+                lig_pos = []
+                lig_feat = []
+                idx = 0
+                
+                for i, entry in enumerate(lig_pos_arr):
+                    lig_pos.extend(entry)
+                    lig_idx.append(idx)
+                    idx += len(entry) - 1
+                    lig_idx.append(idx)
+                    idx += 1
+
+                    lig_feat_arr.extend(one_hot_encode_pharms(lig_feat[i]))
+                
+                ## Create dictionary to encode protein elements
+                ele_idx_map = { element: idx for idx, element in enumerate(self.prot_elements) }
+
+                ## Convert rec_feat_arr and rec_pos_arr into single list
+                ## And encode protein elements as one-hot 
+                prot_idxs = []
+                prot_pos = []
+                prot_feat = []
+                idx = 0
+                for i, entry in enumerate(rec_pos_arr):
+                    prot_pos.extend(entry)
+                    prot_idxs.append(idx)
+                    idx += len(entry) - 1
+                    prot_idxs.append(idx)
+                    idx += 1
+
+                    prot_feat.extend(one_hot_encode_prots(rec_feat_arr[i], ele_idx_map, len(self.prot_elements)))
+
+                ## Make data into tensor
+                
+
+                # ## Set up dictionary of relevant data
+                # data_dict = {}
+                # data_dict['prot_file_name'] = rec_file_name
+                # data_dict['pharm_file_name'] = lig_file_name
+                # data_dict['pharm_obj'] = lig_obj
+                # data_dict['pharm_pos'] = lig_pos
+                # data_dict['pharm_feat'] = lig_feat
+                # data_dict['prot_pos'] = rec_pos
+                # data_dict['prot_feat'] = rec_feat
 
         # define filepath of data
-        self.data_file: Path = Path(processed_data_file)
+        self.processed_data_file: Path = Path(processed_data_file)
 
         # if subsample_pharms is True, getitem will return random resamplings of pharmacophores to augment dataset
         self.subsample_pharms = subsample_pharms
 
-         ### Don't think this is needed anymore
-        # atom typing configurations
-        # self.prot_elements = prot_elements
-        # self.pharm_elements = pharm_elements
-
-        ### Don't think this is needed anymore
-        # self.prot_element_map: Dict[str, int] = { element: idx for idx, element in enumerate(self.prot_elements) }
-        # self.prot_element_map['other'] = len(self.prot_elements)
-
-        # self.pharm_elements = pharm_elements
-        # self.pharm_element_map: Dict[str, int] = { element: idx for idx, element in enumerate(self.pharm_elements) }
-        # self.pharm_element_map['other'] = len(self.pharm_elements)
-
-        # self.pharm_reverse_map = {v:k for k,v in self.pharm_element_map.items()}
-
-        ### Should be able to remove this
-        # self.pharm_box_padding: Union[int, float] = pharm_box_padding
-        # self.pocket_cutoff: Union[int, float] = pocket_cutoff
 
         super().__init__(name=name) # this has to happen last because this will call self.process()
 
@@ -116,7 +163,20 @@ class ProteinLigandDataset(dgl.data.DGLDataset):
 
         return self.prot_files[idx], self.lig_files[idx]
 
-        
+## Fn for one-hot encoding pharmacophore features
+## Aromatic, HydrogenDonor, HydrogenAcceptor, PositiveIon, NegativeIon, Hydrophobic
+def one_hot_encode_pharms(arr):
+    one_hot = np.zeros((len(arr), 6))
+    one_hot[np.arange(len(arr)), arr] = 1
+    return one_hot
+
+## Fn for one-hot encoding protein features
+def one_hot_encode_prots(arr, ele_idx_map, num_ele):
+    one_hot = np.zeros((len(arr), num_ele))
+    for i, e in enumerate(arr):
+        one_hot[i, ele_idx_map[e]] = 1
+    return one_hot
+
 def collate_fn(examples: list):
 
     # break receptor graphs, ligand positions, and ligand features into separate lists
