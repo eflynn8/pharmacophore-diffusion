@@ -7,6 +7,7 @@ import dgl
 from dgl.dataloading import GraphDataLoader
 import torch
 import numpy as np
+import random
 from torch_cluster import radius_graph
 
 # from data_processing.pdbbind_processing import (build_initial_complex_graph,
@@ -63,13 +64,15 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
                 idx = 0
                 
                 for i, entry in enumerate(pharm_pos_arr):
-                    pharm_pos.extend(entry)
-                    pharm_idx.append(idx)
-                    idx += len(entry) - 1
-                    pharm_idx.append(idx)
-                    idx += 1
+                    # Only add pharmacophore entries with > 2 centers
+                    if len(entry) > 2:
+                        pharm_pos.extend(entry)
+                        pharm_idx.append(idx)
+                        idx += len(entry) - 1
+                        pharm_idx.append(idx)
+                        idx += 1
 
-                    pharm_feat.extend(one_hot_encode_pharms(pharm_feat_arr[i]))
+                        pharm_feat.extend(one_hot_encode_pharms(pharm_feat_arr[i]))
                 
                 ## Create dictionary to encode protein elements
                 ele_idx_map = { element: idx for idx, element in enumerate(self.prot_elements) }
@@ -129,11 +132,13 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         # rec_res_idx = self.rec_res_idx[rec_start_idx:rec_end_idx]
 
         ## Subsample pharmacophore features if subsample_pharms is True
-        # select random indices, grab for both pos and feats, build graph with each of those (re-call this method??)
+        if self.subsample_pharms:
+            n_pharm_centers = random.randint(3, 7)
+            pharm_idxs = random.sample(range(len(pharm_pos), n_pharm_centers))
+            pharm_pos = pharm_pos[pharm_idxs]
+            pharm_feat = pharm_feat[pharm_idxs]
 
         complex_graph = build_initial_complex_graph(prot_pos, prot_feat, cutoffs=self.graph_cutoffs, pharm_atom_positions=pharm_pos, pharm_atom_features=pharm_feat)
-
-        # complex_graph = self.data['complex_graph'][i]
 
         complex_graph.nodes['pharm'].data['h_0'] = pharm_feat
         
@@ -162,7 +167,7 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
     def get_files(self, idx: int):
         """Given an index of the dataset, return the filepath of the receptor pdb and ligand sdf."""
 
-        return self.prot_files[idx], self.lig_files[idx]
+        return self.prot_file_name[idx], self.pharm_file_name[idx]
 
 ## Fn for one-hot encoding pharmacophore features
 ## Aromatic, HydrogenDonor, HydrogenAcceptor, PositiveIon, NegativeIon, Hydrophobic
@@ -178,17 +183,16 @@ def one_hot_encode_prots(arr, ele_idx_map, num_ele):
         one_hot[i, ele_idx_map[e]] = 1
     return one_hot
 
-def build_initial_complex_graph(rec_atom_positions: torch.Tensor, rec_atom_features: torch.Tensor, pocket_res_idx: torch.Tensor, n_keypoints: int, cutoffs: dict, lig_atom_positions: torch.Tensor = None, lig_atom_features: torch.Tensor = None):
-
-    if (lig_atom_positions is not None) ^ (lig_atom_features is not None):
+def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_features: torch.Tensor, pocket_res_idx: torch.Tensor, cutoffs: dict, pharm_atom_positions: torch.Tensor = None, pharm_atom_features: torch.Tensor = None):
+    if (pharm_atom_positions is not None) ^ (pharm_atom_features is not None):
         raise ValueError('ligand position and features must be either be both supplied or both left as None')
 
-    n_rec_atoms = rec_atom_positions.shape[0]
+    n_prot_atoms = prot_atom_positions.shape[0]
 
-    if lig_atom_positions is None:
-        n_lig_atoms = 0
+    if pharm_atom_positions is None:
+        n_pharm_atoms = 0
     else:
-        n_lig_atoms = lig_atom_positions.shape[0]
+        n_pharm_atoms = pharm_atom_positions.shape[0]
     
 
     # i've initialized this as an empty dict just to make clear the different types of edges in graph and their names
@@ -200,26 +204,26 @@ def build_initial_complex_graph(rec_atom_positions: torch.Tensor, rec_atom_featu
         ('pharm', 'fp', 'prot'): no_edges
     }
 
-    # compute rec atom -> rec atom edges
-    pp_edges = radius_graph(rec_atom_positions, r=cutoffs['pp'], max_num_neighbors=100)
+    # compute prot atom -> prot atom edges
+    pp_edges = radius_graph(prot_atom_positions, r=cutoffs['pp'], max_num_neighbors=100)
     graph_data[('prot', 'pp', 'prot')] = (pp_edges[0], pp_edges[1])
 
-    # compute "same residue" feature ofr every rr edge
-    same_res_edge = pocket_res_idx[pp_edges[0]] == pocket_res_idx[pp_edges[1]]
+    # compute "same residue" feature ofr every pp edge
+    # same_res_edge = pocket_res_idx[pp_edges[0]] == pocket_res_idx[pp_edges[1]]
 
     num_nodes_dict = {
-        'rec': n_rec_atoms,'lig': n_lig_atoms
+        'rec': n_prot_atoms,'lig': n_pharm_atoms
     }
 
     # create graph object
     g = dgl.heterograph(graph_data, num_nodes_dict=num_nodes_dict)
 
     # add node data
-    if lig_atom_positions is not None:
-        g.nodes['lig'].data['x_0'] = lig_atom_positions
-        g.nodes['lig'].data['h_0'] = lig_atom_features
-    g.nodes['rec'].data['x_0'] = rec_atom_positions
-    g.nodes['rec'].data['h_0'] = rec_atom_features
+    if pharm_atom_positions is not None:
+        g.nodes['pharm'].data['x_0'] = pharm_atom_positions
+        g.nodes['pharm'].data['h_0'] = pharm_atom_features
+    g.nodes['prot'].data['x_0'] = prot_atom_positions
+    g.nodes['prot'].data['h_0'] = prot_atom_features
     
     # add edge data
     g.edges['pp'].data['same_res'] = same_res_edge.view(-1, 1)
