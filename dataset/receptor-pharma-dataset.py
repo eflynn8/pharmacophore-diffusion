@@ -129,6 +129,8 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         pharm_feat = self.pharm_feat[pharm_start_idx:pharm_end_idx]
         prot_pos = self.prot_pos[prot_start_idx:prot_end_idx]
         prot_feat = self.prot_feat[prot_start_idx:prot_end_idx]
+
+        ### TODO: Figure out if this is needed/what it does ###
         # rec_res_idx = self.rec_res_idx[rec_start_idx:rec_end_idx]
 
         ## Subsample pharmacophore features if subsample_pharms is True
@@ -209,6 +211,7 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
     graph_data[('prot', 'pp', 'prot')] = (pp_edges[0], pp_edges[1])
 
     # compute "same residue" feature ofr every pp edge
+    ## TODO
     # same_res_edge = pocket_res_idx[pp_edges[0]] == pocket_res_idx[pp_edges[1]]
 
     num_nodes_dict = {
