@@ -182,7 +182,7 @@ class PharmacophoreDiff(pl.LightningModule):
                                lr=self.lr_scheduler_config['base_lr'],
                                weight_decay=self.lr_scheduler_config['weight_decay']
         )
-        self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
+        # self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
         return optimizer
 
     def training_step(self, batch, batch_idx):

@@ -107,9 +107,9 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
                 ## Save list of tensors to processed_data_file
                 torch.save([self.prot_file_name, self.pharm_file_name, self.pharm_obj, self.pharm_pos, self.pharm_feat,
-                            self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx], processed_data_file)
+                            self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx], processed_data_file + ".pkl")
         else:
-            data = torch.load(processed_data_file)
+            data = torch.load(processed_data_file + ".pkl")
             self.prot_file_name = data[0]
             self.pharm_file_name = data[1]
             self.pharm_obj = data[2]

@@ -35,13 +35,15 @@ wandb:
   mode: online # can be disabled, online, offline
 
 dataset:
-  # TODO: no dataset class actually accesse this information
-  raw_data_dir: 'path/to/crossdocked'
+  # TODO: no dataset class actually accesses this information
+  data_files: ['dataset/it2_tt_v1.3_0_test0_ph_processed.pkl', 'dataset/it2_tt_v1.3_0_test1_ph_processed.pkl', 'dataset/it2_tt_v1.3_0_test2_ph_processed.pkl']
   processed_data_dir: 'data/crossdock_processed'
-  rec_atom_map: ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B'] # ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'Mg', 'Mn', 'Zn', 'Ca', 'Fe', 'B']
+  prot_elements: ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B'] # ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'Mg', 'Mn', 'Zn', 'Ca', 'Fe', 'B']
   ph_type_map: [    'Aromatic', 'HydrogenDonor', 'HydrogenAcceptor', 'PositiveIon', 'NegativeIon', 'Hydrophobic']
   pocket_cutoff: 8 # angstroms
   dataset_size: 15 # used only for debugging
+  subsample_pharms: True
+  graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
   
   
 graph:
