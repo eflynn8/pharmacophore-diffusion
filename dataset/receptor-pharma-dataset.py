@@ -24,6 +24,8 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         graph_cutoffs: dict,
         load_data: bool = True,
         subsample_pharms: bool = False,
+        min_pharm_centers: int = 3,
+        max_pharm_centers: int = 7,
         **kwargs):
 
         self.graph_cutoffs = graph_cutoffs
@@ -215,7 +217,7 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
     # same_res_edge = pocket_res_idx[pp_edges[0]] == pocket_res_idx[pp_edges[1]]
 
     num_nodes_dict = {
-        'rec': n_prot_atoms,'lig': n_pharm_atoms
+        'prot': n_prot_atoms,'pharm': n_pharm_atoms
     }
 
     # create graph object
@@ -229,18 +231,18 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
     g.nodes['prot'].data['h_0'] = prot_atom_features
     
     # add edge data
-    g.edges['pp'].data['same_res'] = same_res_edge.view(-1, 1)
+    # g.edges['pp'].data['same_res'] = same_res_edge.view(-1, 1)
 
     return g
 
 def collate_fn(examples: list):
 
     # break receptor graphs, ligand positions, and ligand features into separate lists
-    complex_graphs, interface_points = zip(*examples)
+    complex_graphs = zip(*examples)
 
     # batch the receptor graphs together
     complex_graphs = dgl.batch(complex_graphs)
-    return complex_graphs, interface_points
+    return complex_graphs
 
 def get_dataloader(dataset: ProteinPharmacophoreDataset, batch_size: int, num_workers: int = 1, **kwargs) -> GraphDataLoader:
 
