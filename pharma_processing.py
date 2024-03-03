@@ -1,12 +1,11 @@
 import re, subprocess, os, gzip, json, glob, multiprocessing
-import multiprocess
 import numpy as np
 from rdkit.Chem import AllChem as Chem
 import tempfile
 import pickle
 from tqdm import tqdm
 from Bio.PDB import PDBParser
-from Bio.PDB.Polypeptide import protein_letters_3to1, is_aa
+from Bio.PDB.Polypeptide import is_aa
 from Bio.PDB import PDBIO
 from scipy.spatial.distance import cdist
 import Bio
@@ -168,7 +167,7 @@ receptors_path = os.path.join(output_path, 'receptors.pkl.gz')
 with gzip.open(receptors_path,'wb') as recout:
     pickle.dump(receptors,recout)
 
-pool = multiprocess.Pool()
+pool = multiprocessing.Pool()
 allphdata = []
 for fname, inputs in allinputs:
     #get features
