@@ -4,9 +4,9 @@ from distutils.util import strtobool
 def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Register hyperparameter arguments for the model."""
 
-    p.add_argument('--batch_size', type=int, default=None)
-    p.add_argument('--lr', type=float, default=None)
-    p.add_argument('--warmup_length', type=float, default=None)
+    # p.add_argument('--batch_size', type=int, default=None)
+    # p.add_argument('--lr', type=float, default=None)
+    # p.add_argument('--warmup_length', type=float, default=None)
 
     diff_group = p.add_argument_group('diffusion')
     diff_group.add_argument('--precision', type=float, default=None)
@@ -50,11 +50,11 @@ def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.Argumen
     p.add_argument('--exp_name', type=str, default=None)
     p.add_argument('--architecture', type=str, default=None)
 
+    return p
+
 
 def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
     """Merge the model configuration with the command line arguments."""
-
-    config = {}
 
     # override config file args with command line args
     args_dict = vars(args)
@@ -74,8 +74,8 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
         if args_dict[f'{etype}_cutoff'] is not None:
             config['graph']['graph_cutoffs'][etype] = args_dict[f'{etype}_cutoff']
     
-    if args.norm is not None:
-        check_bool_int(args.norm)
+    if args.feature_norm is not None:
+        check_bool_int(args.feature_norm)
     
     scheduler_args = ['warmup_length', 
                       'restart_interval', 
@@ -104,7 +104,7 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
     if args.feat_norm_constant is not None:
         config['diffusion']['pharm_feat_norm_constant'] = args.feat_norm_constant
 
-    if args.rl_dist_threshold is not None:
+    if args.pf_dist_threshold is not None:
         config['diffusion']['pf_dist_threshold'] = args.pf_dist_threshold
 
     if args.message_norm is not None:

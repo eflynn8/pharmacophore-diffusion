@@ -14,7 +14,7 @@ from torch_scatter import segment_coo, segment_csr
 from losses.dist_hinge_loss import DistanceHingeLoss
 from models.dynamics_gvp import PharmRecDynamicsGVP
 from models.n_nodes_dist import PharmSizeDistribution
-from models.scheduler import LRScheduler
+# from models.scheduler import LRScheduler
 from utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from torch_scatter import segment_csr
 import pytorch_lightning as pl
@@ -22,7 +22,7 @@ import pytorch_lightning as pl
 
 class PharmacophoreDiff(pl.LightningModule):
 
-    def __init__(self, pharm_nf, rec_nf, processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1):
+    def __init__(self, pharm_nf, rec_nf, processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1, **kwargs):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf

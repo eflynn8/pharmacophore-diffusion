@@ -36,18 +36,21 @@ wandb:
 
 dataset:
   # TODO: no dataset class actually accesses this information
-  data_files: ['dataset/it2_tt_v1.3_0_test0_ph_processed.pkl', 'dataset/it2_tt_v1.3_0_test1_ph_processed.pkl', 'dataset/it2_tt_v1.3_0_test2_ph_processed.pkl']
-  processed_data_dir: 'data/crossdock_processed'
-  prot_elements: ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B'] # ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'Mg', 'Mn', 'Zn', 'Ca', 'Fe', 'B']
+  # data_files: ['/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test0_ph.pkl', '/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test1_ph.pkl', '/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test2_ph.pkl']
+  data_files: ['/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test0_ph.pkl']
+  rec_file: 'dataset/receptors.pkl.gz'
+  # processed_data_dir: 'data/crossdock_processed'
+  processed_data_dir: 'data/'
+  prot_elements: ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B', 'D'] # ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'Mg', 'Mn', 'Zn', 'Ca', 'Fe', 'B']
   ph_type_map: [    'Aromatic', 'HydrogenDonor', 'HydrogenAcceptor', 'PositiveIon', 'NegativeIon', 'Hydrophobic']
   pocket_cutoff: 8 # angstroms
   dataset_size: 15 # used only for debugging
+  load_data: False
   subsample_pharms: True
   graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
   
   
 graph:
-  n_keypoints: 20
   graph_cutoffs: {'rr': 3.5, 'rk': 100, 'kk': 8, 'kl': 8, 'll': 9}
 
 
@@ -61,11 +64,10 @@ dynamics:
   vector_size: 16
   n_convs: 2
   n_hidden_scalars: 128
-  update_kp: True
   message_norm: 'mean'
   dropout: 0.1
-  ll_k: 0
-  kl_k: 5
+  ff_k: 0
+  pf_k: 5
   n_message_gvps: 3 # the number of GVPs to chain together for the message function
   n_update_gvps: 2 # the number of GVPs to chain together for the update function
   n_noise_gvps: 4 # the number of GVPs to chain together for the noise prediction block

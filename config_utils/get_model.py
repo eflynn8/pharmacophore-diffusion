@@ -5,7 +5,8 @@ def model_from_config(config: dict):
 
 
     # get the number of receptor atom features, ligand atom features, and keypoint features
-    n_rec_feat = len(config['dataset']['rec_elements'])
+    print("Config keys: ", config.keys())
+    n_rec_feat = len(config['dataset']['prot_elements'])
     n_ph_types = len(config['dataset']['ph_type_map'])
 
 
