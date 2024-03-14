@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import numpy as np
 import random
-from dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
+from dataset.protein_pharm_dataset import ProteinPharmacophoreDataset, get_dataloader, collate_fn
 
 class ProtPharmDataModule(pl.LightningDataModule):
     def __init__(self,
@@ -25,4 +25,4 @@ class ProtPharmDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
     
     def train_dataloader(self):
-        return ProteinPharmacophoreDataset.get_dataloader(self.dataset, self.batch_size, self.num_workers)
+        return get_dataloader(self.dataset, self.batch_size, self.num_workers)

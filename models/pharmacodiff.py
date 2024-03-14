@@ -37,6 +37,9 @@ class PharmacophoreDiff(pl.LightningModule):
 
         self.dynamics = PharmRecDynamicsGVP(pharm_nf,rec_nf,**graph_config,**dynamics_config)
 
+        self.lr_scheduler_config = lr_scheduler_config
+        # self.n_vec_feats = n_vec_feats
+
         self.save_hyperparameters()
     
     def normalize(self, protpharm_graphs: dgl.DGLHeteroGraph):
@@ -178,6 +181,7 @@ class PharmacophoreDiff(pl.LightningModule):
         return len(self.trainer.train_dataloader)
     
     def configure_optimizers(self):
+        print("LR Scheduler Config: ", self.lr_scheduler_config)
         optimizer = optim.Adam(self.parameters(), 
                                lr=self.lr_scheduler_config['base_lr'],
                                weight_decay=self.lr_scheduler_config['weight_decay']
@@ -188,7 +192,7 @@ class PharmacophoreDiff(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         protpharm_graphs = batch
         current_epoch = self.current_epoch + batch_idx / self.num_training_batches()
-        self.lr_scheduler.step_lr(current_epoch, self.optimizers())
+        # self.lr_scheduler.step_lr(current_epoch, self.optimizers())
         loss_dict = self.forward(protpharm_graphs)
         loss_dict['total loss'] = torch.sum(loss_dict.values())
         self.log_dict(loss_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True)

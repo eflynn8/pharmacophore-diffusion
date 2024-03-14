@@ -2,7 +2,7 @@ training:
   output_dir: runs/
   batch_size: 32
   weight_decay: 1.0e-12
-  num_workers: 2
+  num_workers: 0
   trainer_args:
     max_epochs: 3
     accelerator: gpu
@@ -21,6 +21,7 @@ lr_scheduler:
   warmup_length: 0
   restart_interval: 0 # 0 means no restart
   restart_type: 'linear'
+  weight_decay: 1.0e-12
 
 checkpointing:
   save_last: True
@@ -51,7 +52,7 @@ dataset:
   
   
 graph:
-  graph_cutoffs: {'rr': 3.5, 'rk': 100, 'kk': 8, 'kl': 8, 'll': 9}
+  graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
 
 
 diffusion:
@@ -74,4 +75,3 @@ dynamics:
 
 rec_encoder_loss:
   loss_type: 'optimal_transport' # can be optimal_transport, gaussian_repulsion, hinge, or none
-  use_interface_points: False
