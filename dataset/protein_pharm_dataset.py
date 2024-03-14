@@ -2,6 +2,8 @@ from pathlib import Path
 import pickle
 from typing import Dict, List, Union
 import math
+import os
+import rdkit
 
 import dgl
 from dgl.dataloading import GraphDataLoader
@@ -17,15 +19,13 @@ from torch_cluster import radius_graph
 class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
     def __init__(self, name: str, 
-        processed_data_file: str,
+        processed_data_dir: str,
         data_files: str,
         rec_file: str,
         prot_elements: List[str],
         graph_cutoffs: dict,
         load_data: bool = True,
         subsample_pharms: bool = False,
-        min_pharm_centers: int = 3,
-        max_pharm_centers: int = 7,
         **kwargs):
 
         self.graph_cutoffs = graph_cutoffs
@@ -40,7 +40,7 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         self.rec_file = rec_file
 
         # define filepath of data
-        self.processed_data_file: Path = Path(processed_data_file)
+        self.processed_data_dir: Path = Path(processed_data_dir)
 
         if self.load_data:
             if not self.data_files or not self.rec_file:
@@ -48,7 +48,11 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
             for file in self.data_files:
                 with open(file, 'rb') as f:
                     data = pickle.load(f)
+                    # pass
                 
+                print("New file name: ", self.processed_data_dir/(file.split(".pkl")[-2] + "np" + ".pkl"))
+                
+                print("Loading data from file: ", file)
                 ## Collect data entries into lists
                 prot_file_name = [prot[0] for prot in data]
                 pharm_file_name = [ph[1] for ph in data]
@@ -60,6 +64,7 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
                 ## Convert pharm_feat_arr and pharm_pos_arr into single list
                 ## And encode pharmacophore feats as one-hot
+                print("Encoding pharmacophore features.")
                 pharm_idx = []
                 pharm_pos = []
                 pharm_feat = []
@@ -80,7 +85,8 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
                 ele_idx_map = { element: idx for idx, element in enumerate(self.prot_elements) }
 
                 ## Convert prot_feat_arr and prot_pos_arr into single list
-                ## And encode protein elements as one-hot 
+                ## And encode protein elements as one-hot
+                print("Encoding protein features.") 
                 prot_idx = []
                 prot_pos = []
                 prot_feat = []
@@ -88,37 +94,81 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
                 for i, entry in enumerate(prot_pos_arr):
                     prot_pos.extend(entry)
                     prot_idx.append(idx)
-                    idx += len(entry) - 1
+                    idx += len(entry)
                     prot_idx.append(idx)
                     idx += 1
 
                     prot_feat.extend(one_hot_encode_prots(prot_feat_arr[i], ele_idx_map, len(self.prot_elements)))
 
                 ## Make data into tensor
-                self.prot_file_name = torch.tensor(prot_file_name)
-                self.pharm_file_name = torch.tensor(pharm_file_name)
-                self.pharm_obj = torch.tensor(pharm_obj)
-                self.pharm_pos = torch.tensor(pharm_pos)
-                self.pharm_feat = torch.tensor(pharm_feat)
-                self.prot_pos = torch.tensor(prot_pos)
-                self.prot_feat = torch.tensor(prot_feat)
-                self.pharm_idx = torch.tensor(pharm_idx)
-                self.prot_idx = torch.tensor(prot_idx)
+                # print("Creating new tensors.")
+                # # self.prot_file_name = torch.tensor(prot_file_name)
+                # # self.pharm_file_name = torch.tensor(pharm_file_name)
+                # # self.pharm_obj = torch.tensor(pharm_obj)
+                # print("Creating pharm_pos tensor.")
+                # self.pharm_pos = torch.tensor(pharm_pos)
+                # print("Creating pharm_feat tensor.")
+                # self.pharm_feat = torch.tensor(pharm_feat)
+                # print("Creating prot_pos tensor.")
+                # self.prot_pos = torch.tensor(prot_pos)
+                # print("Creating prot_feat tensor.")
+                # self.prot_feat = torch.tensor(prot_feat)
+                # print("Creating pharm_idx tensor.")
+                # self.pharm_idx = torch.tensor(pharm_idx)
+                # print("Creating prot_idx tensor.")
+                # self.prot_idx = torch.tensor(prot_idx)
+                # print("Currently not saving tensors, so this is done.")
+                ## Save list of tensors to processed_data_dir
+                # TODO Fix so that doesn't overwrite processed_file for each file
+                # print("Trying to save tensors...")
+                # torch.save(torch.tensor([self.prot_file_name, self.pharm_file_name, self.pharm_obj, self.pharm_pos, self.pharm_feat,
+                            # self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx]), processed_data_dir/file.split(".")[0] + "tensors" + ".pkl")
+                # torch.save([self.pharm_pos, self.pharm_feat, self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx], processed_data_dir/file.split(".")[0] + "tensors" + ".pkl")
 
-                ## Save list of tensors to processed_data_file
+                ## Save data as numpy arrays instead
+                self.prot_file_name = np.array(prot_file_name)
+                self.pharm_file_name = np.array(pharm_file_name)
+                self.pharm_obj = np.array(pharm_obj)
+                print("Creating pharm_pos np array.")
+                self.pharm_pos = np.array(pharm_pos)
+                print("Creating pharm_feat np array.")
+                self.pharm_feat = np.array(pharm_feat)
+                print("Creating prot_pos np array.")
+                self.prot_pos = np.array(prot_pos)
+                print("Creating prot_feat np array.")
+                self.prot_feat = np.array(prot_feat)
+                print("Creating pharm_idx np array.")
+                self.pharm_idx = np.array(pharm_idx)
+                print("Creating prot_idx np array.")
+                self.prot_idx = np.array(prot_idx)
+
                 torch.save([self.prot_file_name, self.pharm_file_name, self.pharm_obj, self.pharm_pos, self.pharm_feat,
-                            self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx], processed_data_file)
+                            self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx], self.processed_data_dir/(file.split(".")[0] + "np" + ".pkl"))
+
+
+        
         else:
-            data = torch.load(processed_data_file)
-            self.prot_file_name = data[0]
-            self.pharm_file_name = data[1]
-            self.pharm_obj = data[2]
-            self.pharm_pos = data[3]
-            self.pharm_feat = data[4]
-            self.prot_pos = data[5]
-            self.prot_feat = data[6]
-            self.pharm_idx = data[7]
-            self.prot_idx = data[8]
+            for file in os.listdir(self.processed_data_dir):
+                if file.endswith(".pkl"):
+                    data = torch.load(self.processed_data_dir / file)
+
+                    ## TODO: Uncomment this part once the prot_file, pharm_file, and pharm_obj tensors are fixed
+                    # self.prot_file_name = data[0]
+                    # self.pharm_file_name = data[1]
+                    # self.pharm_obj = data[2]
+                    # self.pharm_pos = data[3]
+                    # self.pharm_feat = data[4]
+                    # self.prot_pos = data[5]
+                    # self.prot_feat = data[6]
+                    # self.pharm_idx = data[7]
+                    # self.prot_idx = data[8]
+
+                    self.pharm_pos = data[0]
+                    self.pharm_feat = data[1]
+                    self.prot_pos = data[2]
+                    self.prot_feat = data[3]
+                    self.pharm_idx = data[4]
+                    self.prot_idx = data[5]
 
         super().__init__(name=name) # this has to happen last because this will call self.process()
 
@@ -132,15 +182,15 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         prot_pos = self.prot_pos[prot_start_idx:prot_end_idx]
         prot_feat = self.prot_feat[prot_start_idx:prot_end_idx]
 
-        ### TODO: Figure out if this is needed/what it does ###
-        # rec_res_idx = self.rec_res_idx[rec_start_idx:rec_end_idx]
-
         ## Subsample pharmacophore features if subsample_pharms is True
         if self.subsample_pharms:
-            n_pharm_centers = random.randint(3, 7)
-            pharm_idxs = random.sample(range(len(pharm_pos), n_pharm_centers))
-            pharm_pos = pharm_pos[pharm_idxs]
-            pharm_feat = pharm_feat[pharm_idxs]
+            ## TODO: Remove this length check once only add pharms with more than 2 centers
+            print("Number of Pharm Centers: ", len(pharm_pos))
+            if len(pharm_pos) > 2:
+                n_pharm_centers = random.randint(3, min(7, len(pharm_pos)))
+                pharm_idxs = random.sample(range(len(pharm_pos)), n_pharm_centers)
+                pharm_pos = pharm_pos[pharm_idxs]
+                pharm_feat = pharm_feat[pharm_idxs]
 
         complex_graph = build_initial_complex_graph(prot_pos, prot_feat, cutoffs=self.graph_cutoffs, pharm_atom_positions=pharm_pos, pharm_atom_features=pharm_feat)
 
@@ -152,7 +202,9 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         return complex_graph
 
     def __len__(self):
-        return self.prot_file_name.shape[0] - 1
+        ## TODO: Uncomment once fix prot file tensor
+        # return self.prot_file_name.shape[0] - 1
+        return int(self.prot_idx.shape[0] / 2)
 
     def lig_atom_idx_to_element(self, element_idxs: List[int]):
         atom_elements = [ self.lig_reverse_map[element_idx] for element_idx in element_idxs ]
@@ -187,9 +239,9 @@ def one_hot_encode_prots(arr, ele_idx_map, num_ele):
         one_hot[i, ele_idx_map[e]] = 1
     return one_hot
 
-def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_features: torch.Tensor, pocket_res_idx: torch.Tensor, cutoffs: dict, pharm_atom_positions: torch.Tensor = None, pharm_atom_features: torch.Tensor = None):
+def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_features: torch.Tensor, cutoffs: dict, pharm_atom_positions: torch.Tensor = None, pharm_atom_features: torch.Tensor = None):
     if (pharm_atom_positions is not None) ^ (pharm_atom_features is not None):
-        raise ValueError('ligand position and features must be either be both supplied or both left as None')
+        raise ValueError('pharmacophore position and features must be either be both supplied or both left as None')
 
     n_prot_atoms = prot_atom_positions.shape[0]
 
@@ -210,18 +262,14 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
 
     # compute prot atom -> prot atom edges
     pp_edges = radius_graph(prot_atom_positions, r=cutoffs['pp'], max_num_neighbors=100)
-    graph_data[('prot', 'pp', 'prot')] = (pp_edges[0], pp_edges[1])
-
-    # compute "same residue" feature ofr every pp edge
-    ## TODO
-    # same_res_edge = pocket_res_idx[pp_edges[0]] == pocket_res_idx[pp_edges[1]]
+    graph_data[('prot', 'pp', 'prot')] = (pp_edges[0].cpu(), pp_edges[1].cpu())
 
     num_nodes_dict = {
         'prot': n_prot_atoms,'pharm': n_pharm_atoms
     }
 
     # create graph object
-    g = dgl.heterograph(graph_data, num_nodes_dict=num_nodes_dict)
+    g = dgl.heterograph(graph_data, num_nodes_dict=num_nodes_dict, device='cpu:0').to(torch.device('cuda:0'))
 
     # add node data
     if pharm_atom_positions is not None:
@@ -229,18 +277,11 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
         g.nodes['pharm'].data['h_0'] = pharm_atom_features
     g.nodes['prot'].data['x_0'] = prot_atom_positions
     g.nodes['prot'].data['h_0'] = prot_atom_features
-    
-    # add edge data
-    # g.edges['pp'].data['same_res'] = same_res_edge.view(-1, 1)
 
     return g
 
-def collate_fn(examples: list):
-
-    # break receptor graphs, ligand positions, and ligand features into separate lists
-    complex_graphs = zip(*examples)
-
-    # batch the receptor graphs together
+def collate_fn(complex_graphs: list):
+    # batch the graphs together
     complex_graphs = dgl.batch(complex_graphs)
     return complex_graphs
 
