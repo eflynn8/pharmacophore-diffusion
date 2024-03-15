@@ -3,7 +3,7 @@ import dgl
 import torch
 from typing import Dict, List, Tuple, Union
 
-from utils import get_batch_info, get_edges_per_batch
+from utils import get_batch_info, get_edges_per_batch, get_batch_idxs
 from torch_cluster import radius_graph, knn_graph, knn, radius
 from .gvp import GVPMultiEdgeConv, GVP
 
@@ -168,7 +168,8 @@ class PharmRecDynamicsGVP(nn.Module):
             node_data['prot'] = (
                 prot_scalars,
                 g.nodes['prot'].data['x_0'],
-                g.nodes['prot'].data['v_0']
+                torch.zeros((prot_scalars.shape[0], self.vector_size, 3),
+                            device=g.device, dtype=prot_scalars.dtype)
             )
 
             # add pharm-pharm and prot<->pharm edges to graph
@@ -198,7 +199,7 @@ class PharmRecDynamicsGVP(nn.Module):
         # add prot-pharm edges
         if self.pf_k > 0:
             ### Change to knn instead of knn_graph and check which idxs belong to prots and which to pharms
-            pf_idxs = knn(g.nodes['pharm'].data['x_0'], k=self.pf_k, batch=pharm_batch_idx)
+            pf_idxs = knn(g.nodes['pharm'].data['x_0'], g.nodes['prot'].data['x_0'], k=self.pf_k, batch_x=pharm_batch_idx, batch_y=prot_batch_idx)
             print("VERIFY PF EDGES!")
             print("PF Idxs: ", pf_idxs)
         else:     

@@ -50,8 +50,6 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
                     data = pickle.load(f)
                     # pass
                 
-                print("New file name: ", self.processed_data_dir/(file.split(".pkl")[-2] + "np" + ".pkl"))
-                
                 print("Loading data from file: ", file)
                 ## Collect data entries into lists
                 prot_file_name = [prot[0] for prot in data]
@@ -100,57 +98,57 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
                     prot_feat.extend(one_hot_encode_prots(prot_feat_arr[i], ele_idx_map, len(self.prot_elements)))
 
-                ## Make data into tensor
-                # print("Creating new tensors.")
-                # # self.prot_file_name = torch.tensor(prot_file_name)
-                # # self.pharm_file_name = torch.tensor(pharm_file_name)
-                # # self.pharm_obj = torch.tensor(pharm_obj)
-                # print("Creating pharm_pos tensor.")
-                # self.pharm_pos = torch.tensor(pharm_pos)
-                # print("Creating pharm_feat tensor.")
-                # self.pharm_feat = torch.tensor(pharm_feat)
-                # print("Creating prot_pos tensor.")
-                # self.prot_pos = torch.tensor(prot_pos)
-                # print("Creating prot_feat tensor.")
-                # self.prot_feat = torch.tensor(prot_feat)
-                # print("Creating pharm_idx tensor.")
-                # self.pharm_idx = torch.tensor(pharm_idx)
-                # print("Creating prot_idx tensor.")
-                # self.prot_idx = torch.tensor(prot_idx)
-                # print("Currently not saving tensors, so this is done.")
-                ## Save list of tensors to processed_data_dir
-                # TODO Fix so that doesn't overwrite processed_file for each file
-                # print("Trying to save tensors...")
-                # torch.save(torch.tensor([self.prot_file_name, self.pharm_file_name, self.pharm_obj, self.pharm_pos, self.pharm_feat,
-                            # self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx]), processed_data_dir/file.split(".")[0] + "tensors" + ".pkl")
-                # torch.save([self.pharm_pos, self.pharm_feat, self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx], processed_data_dir/file.split(".")[0] + "tensors" + ".pkl")
-
-                ## Save data as numpy arrays instead
-                self.prot_file_name = np.array(prot_file_name)
-                self.pharm_file_name = np.array(pharm_file_name)
-                self.pharm_obj = np.array(pharm_obj)
+                ## Save data as numpy arrays
+                self.prot_file_name = np.asarray(prot_file_name)
+                self.pharm_file_name = np.asarray(pharm_file_name)
+                self.pharm_obj = np.asarray(pharm_obj)
                 print("Creating pharm_pos np array.")
-                self.pharm_pos = np.array(pharm_pos)
+                self.pharm_pos = np.asarray(pharm_pos)
                 print("Creating pharm_feat np array.")
-                self.pharm_feat = np.array(pharm_feat)
+                self.pharm_feat = np.asarray(pharm_feat)
                 print("Creating prot_pos np array.")
-                self.prot_pos = np.array(prot_pos)
+                self.prot_pos = np.asarray(prot_pos)
                 print("Creating prot_feat np array.")
-                self.prot_feat = np.array(prot_feat)
+                self.prot_feat = np.asarray(prot_feat)
                 print("Creating pharm_idx np array.")
-                self.pharm_idx = np.array(pharm_idx)
+                self.pharm_idx = np.asarray(pharm_idx)
                 print("Creating prot_idx np array.")
-                self.prot_idx = np.array(prot_idx)
-
-                torch.save([self.prot_file_name, self.pharm_file_name, self.pharm_obj, self.pharm_pos, self.pharm_feat,
-                            self.prot_pos, self.prot_feat, self.pharm_idx, self.prot_idx], self.processed_data_dir/(file.split(".")[0] + "np" + ".pkl"))
-
-
+                self.prot_idx = np.asarray(prot_idx)
         
+                with open(self.processed_data_dir/(file.split("/")[-1].split(".pkl")[0] + "_np" + ".pkl"), 'wb') as f:
+                    print("Saving np arrays to: ", self.processed_data_dir/(file.split("/")[-1].split(".pkl")[0] + "_np" + ".pkl"))
+                    np.save(f, self.prot_file_name)
+                    np.save(f, self.pharm_file_name)
+                    np.save(f, self.pharm_obj)
+                    np.save(f, self.pharm_pos)
+                    np.save(f, self.pharm_feat)
+                    np.save(f, self.prot_pos)
+                    np.save(f, self.prot_feat)
+                    np.save(f, self.pharm_idx)
+                    np.save(f, self.prot_idx)
+
+                ## Make data into tensor
+                ## TODO: Set to full tensor info from multiple files
+                print("Pharm Pos Tensor")
+                self.pharm_pos = torch.as_tensor(self.pharm_pos)
+                print("Pharm Feats Tensor")
+                self.pharm_feat = torch.as_tensor(self.pharm_feat)
+                print("Prot Pos Tensor")
+                self.prot_pos = torch.as_tensor(self.prot_pos)
+                print("Prot Feats Tensor")
+                self.prot_feat = torch.as_tensor(self.prot_feat)
+                print("Pharm Idxs Tensor")
+                self.pharm_idx = torch.as_tensor(self.pharm_idx)
+                print("Prot Idxs Tensor")
+                self.prot_idx = torch.as_tensor(self.prot_idx)
+
         else:
             for file in os.listdir(self.processed_data_dir):
                 if file.endswith(".pkl"):
                     data = torch.load(self.processed_data_dir / file)
+            
+                    ## TODO: Fix to load from np file formats - load then turn into tensors
+                    ## TODO: Figure out how to load in data from multiple files
 
                     ## TODO: Uncomment this part once the prot_file, pharm_file, and pharm_obj tensors are fixed
                     # self.prot_file_name = data[0]
