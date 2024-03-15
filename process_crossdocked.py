@@ -18,8 +18,6 @@ from constants import ph_type_to_idx
 
 def parse_args():
     parser = argparse.ArgumentParser()
-
-    parser.add_argument("--crossdocked_dir", help="Path to crossdocked directory", required=True, type=Path)
     parser.add_argument("--config", help="Path to config file", required=True, type=Path)
     args = parser.parse_args()
     return args
@@ -134,8 +132,74 @@ def getfeatures(reclig, pocket_cutoff: int = 8):
             print(rec,glig)
             return((rec,glig,None,None,None))
         
-def construct_dataset_tensors():
-    pass
+def write_processed_dataset(processed_data_dir: str, types_file_path: str, data: list, pocket_element_map: list, min_pharm_centers = 3):
+    prot_file_name = []
+    pharm_file_name = []
+    lig_rdmol = []
+    pharm_pos_arr = []
+    pharm_feat_arr = []
+    prot_pos_arr = []
+    prot_feat_arr = []
+
+    for item in data:
+
+        pharm_types = item[3][1] # np array of pharmacophore types as integers
+        n_pharmacophore_centers = pharm_types.shape[0]
+        if n_pharmacophore_centers < min_pharm_centers:
+            continue
+
+        prot_file_name.append(item[0])
+        pharm_file_name.append(item[1])
+        lig_rdmol.append(item[2])
+        pharm_pos_arr.append(item[3][0])
+        pharm_feat_arr.append(item[3][1])
+        prot_pos_arr.append(item[4][0])
+        prot_feat_arr.append(item[4][1])
+
+    # get the number of pharmacophore centers in every example
+    n_centers = np.array([len(x) for x in pharm_pos_arr])
+
+    # get the number of receptor atoms in every example
+    n_atoms = np.array([len(x) for x in prot_pos_arr])
+
+    # concatenate pharm_pos, pharm_feat, prot_pos, prot_feat into single arrays
+    pharm_pos = np.concatenate(pharm_pos_arr, axis=0, dtype=np.float32)
+    pharm_feat = np.concatenate(pharm_feat_arr, axis=0, dtype=np.int32)
+    prot_pos = np.concatenate(prot_pos_arr, axis=0, dtype=np.float32)
+    prot_feat = np.concatenate(prot_feat_arr, axis=0, dtype=np.int32)
+
+    # create an array of indicies to keep track of the start_idx and end_idx of each pharmacophore
+    pharm_idx_array = np.zeros((len(pharm_pos_arr), 2), dtype=int)
+    pharm_idx_array[:, 1] = np.cumsum(n_centers)
+    pharm_idx_array[1:, 0] = pharm_idx_array[:-1, 1]
+
+    # create an array of indicies to keep track of the start_idx and end_idx of each receptor
+    prot_idx_array = np.zeros((len(prot_pos_arr), 2), dtype=int)
+    prot_idx_array[:, 1] = np.cumsum(n_atoms)
+    prot_idx_array[1:, 0] = prot_idx_array[:-1, 1]
+
+    # get the processed output directory for this types file
+    types_file_stem = Path(types_file_path).name.split('.')[0]
+    output_dir = Path(processed_data_dir) / types_file_stem
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # use np.savez_compressed to save protein positions/features, pharmacophore positions/features, and the index arrays
+    # to a .npz file
+    prot_pharm_tensors_file = output_dir / 'prot_pharm_tensors.npz'
+    np.savez_compressed(prot_pharm_tensors_file,
+                        prot_pos=prot_pos, prot_feat=prot_feat, prot_idx=prot_idx_array,
+                        pharm_pos=pharm_pos, pharm_feat=pharm_feat, pharm_idx=pharm_idx_array,)
+    
+
+    # write the ligand rdkit molecules to a .pkl.gz file
+    lig_rdmol_file = output_dir / 'lig_rdmol.pkl.gz'
+    with gzip.open(lig_rdmol_file, 'wb') as f:
+        pickle.dump(lig_rdmol, f)
+
+    # write the protein file names to a .pkl.gz file
+    prot_file_name_file = output_dir / 'prot_file_names.pkl.gz'
+    with gzip.open(prot_file_name_file, 'wb') as f:
+        pickle.dump(prot_file_name, f)
 
 
 if __name__ == "__main__":
@@ -146,8 +210,9 @@ if __name__ == "__main__":
     with open(args.config, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
-    data_path = args.crossdocked_dir
+    data_path = config['dataset']['raw_data_dir']
     output_path = config['dataset']['processed_data_dir']
+    dataset_size = config['dataset']['dataset_size']
 
     # all inputs is a list of tuples. Each tuple has length 2.
     # the first entry in the tuple is the filepath of the types file for which this data point came from
@@ -161,10 +226,14 @@ if __name__ == "__main__":
         f = open(fname)
         # inputs is a list which contains tuples of length 2. the first item in each tuple is the receptor file name and the second item is the ligand file name
         inputs = [] 
-        for line in f:
+        for idx, line in enumerate(f):
             label,affinity,rmsd,rec,glig,_ = line.split()
             if label == '1':
                 inputs.append((rec,glig))
+
+            if dataset_size is not None and idx > dataset_size:
+                break
+
         allinputs.append((fname,inputs))
 
     #collect and parse all receptors
@@ -194,9 +263,18 @@ if __name__ == "__main__":
         #filter out empty
         # the third entry in each tuple is the ligand molecule as an rdkit object, which is None if the ligand molecule could not be parsed
         phdata = [ex for ex in phdata if ex[2]]
-        allphdata += phdata
+        # allphdata += phdata
+
+
+        # process into tensors
+        write_processed_dataset(output_path, fname, phdata,
+                                pocket_element_map=config['dataset']['prot_elements'],
+                                min_pharm_centers=config['dataset']['min_pharm_centers'])
+
+
+
         #writeout pickle
-        outname = os.path.basename(fname).replace('.types','_ph.pkl.gz')
-        outpath = os.path.join(output_path, outname)
-        with gzip.open(outpath,'wb') as out:
-            pickle.dump(phdata,out)
+        # outname = os.path.basename(fname).replace('.types','_ph.pkl.gz')
+        # outpath = os.path.join(output_path, outname)
+        # with gzip.open(outpath,'wb') as out:
+        #     pickle.dump(phdata,out)
