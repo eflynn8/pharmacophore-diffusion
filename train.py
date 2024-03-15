@@ -80,7 +80,7 @@ if __name__ == '__main__':
     # instantiate data module
     data_module = data_module_from_config(config)
 
-    # TODO: instantiate model
+    # instantiate model
     model: PharmacophoreDiff = model_from_config(config)
 
     # get wandb logger config
