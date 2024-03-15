@@ -11,6 +11,7 @@ import torch
 import numpy as np
 import random
 from torch_cluster import radius_graph
+import gzip
 
 # from data_processing.pdbbind_processing import (build_initial_complex_graph,
 #                                                 get_pocket_atoms, parse_ligand,
@@ -46,7 +47,13 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
             if not self.data_files or not self.rec_file:
                 raise ValueError('load_data set to True but no data or receptor files provided in config')
             for file in self.data_files:
-                with open(file, 'rb') as f:
+
+                # double-check that these files are the .sdf.gz files produced directly from the CrossDockedDataset
+                # TODO: really the dataset class should be agnostic to the particular dataset we are using and not have to know about the CrossDockedDataset
+                # or alternatively, we could have separate dataset classes
+                file_suffixes = Path(file).suffixes
+                assert file_suffixes[-1] == '.gz' and file_suffixes[-2] == '.pkl', 'Data files must be in .pkl.gz format'
+                with gzip.open(file, 'rb') as f:
                     data = pickle.load(f)
                     # pass
                 
