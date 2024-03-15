@@ -11,23 +11,18 @@ from scipy.spatial.distance import cdist
 import Bio
 import Bio.SeqUtils
 import argparse
+from pathlib import Path
+import yaml
+from functools import partial
+from constants import ph_type_to_idx
 
+def parse_args():
+    parser = argparse.ArgumentParser()
 
-phmap = {
-    'Aromatic': 0,
-    'HydrogenDonor': 1,
-    'HydrogenAcceptor': 2,
-    'PositiveIon': 3,
-    'NegativeIon': 4,
-    'Hydrophobic': 5
-}
-
-index2ph = [    'Aromatic',
-    'HydrogenDonor',
-    'HydrogenAcceptor',
-    'PositiveIon',
-    'NegativeIon',
-    'Hydrophobic']
+    parser.add_argument("--crossdocked_dir", help="Path to crossdocked directory", required=True, type=Path)
+    parser.add_argument("--config", help="Path to config file", required=True, type=Path)
+    args = parser.parse_args()
+    return args
 
 def element_fixer(element: str):
 
@@ -37,9 +32,10 @@ def element_fixer(element: str):
     return element
 
 
-def getfeatures(reclig):
-    pocket_cutoff = 8
+def getfeatures(reclig, pocket_cutoff: int = 8):
     
+    # reclig is a tuple of length 2. The first entry is the receptor file name and the second entry is the ligand file name
+
     rec,glig = reclig
     rec = rec.replace('_0.gninatypes','.pdb')            
     m = re.search(r'(\S+)_(\d+)\.gninatypes',glig)
@@ -77,7 +73,7 @@ def getfeatures(reclig):
 
             if ph['points']:
                 feature_coords = np.array([(p['x'],p['y'],p['z']) for p in ph['points'] if p['enabled']])
-                feature_kind = np.array([phmap[p['name']] for p in ph['points'] if p['enabled']])
+                feature_kind = np.array([ph_type_to_idx[p['name']] for p in ph['points'] if p['enabled']])
             else:
                 feature_coords = []
                 feature_kind = []
@@ -125,58 +121,82 @@ def getfeatures(reclig):
             pocket_rid = np.array([ar[1].id[1] for ar in pocket_atomres])
             #receptor and features are needed for training
             #glig is included for reference back to original data for debugging
+
+            # rec is the filepath of the receptor pdb file
+            # glig is the filepath of the ligand gninatypes file
+            # ligand is the ligand molecule as an rdkit object
+            # feature_coords is the cartesian coordinates of the pharmacophore centers
+            # feature_kind is the integer type of each pharmacophore center
+
             return ((rec,glig,ligand,(feature_coords, feature_kind),(pocket_coords, pocket_elements, pocket_anames, pocket_res, pocket_rid)))    
         except Exception as e:
             print(e)
             print(rec,glig)
             return((rec,glig,None,None,None))
-
-parser = argparse.ArgumentParser()
-
-parser.add_argument("--data_dir", help = "Path to crossdocked directory", required=True)
-parser.add_argument("--output_pkl", help = "Path for output pkl files", required=True)
-args = parser.parse_args()
-
-data_path = args.data_dir
-output_path = args.output_pkl
-
-allinputs = []
-#should path to types be a separate argument ?
-types_files = os.path.join(data_path,'types','it2_tt_v1.3_0_test*types')
-for fname in glob.glob(types_files):
-    #pull out good rmsd lines only
-    f = open(fname)
-    inputs = []
-    for line in f:
-        label,affinity,rmsd,rec,glig,_ = line.split()
-        if label == '1':
-            inputs.append((rec,glig))
-    allinputs.append((fname,inputs))
-
-#collect and parse all receptors
-receptors = dict()
-for fname, inputs in allinputs:
-    for rec,lig in tqdm(inputs):
-        rec = rec.replace('_0.gninatypes','.pdb')           
-        rec_path = os.path.join(data_path, rec)
         
-        if rec not in receptors:
-            receptors[rec] = Chem.MolFromPDBBlock(open(rec_path).read(),sanitize=False)
+def construct_dataset_tensors():
+    pass
 
-receptors_path = os.path.join(output_path, 'receptors.pkl.gz')
-with gzip.open(receptors_path,'wb') as recout:
-    pickle.dump(receptors,recout)
 
-pool = multiprocessing.Pool()
-allphdata = []
-for fname, inputs in allinputs:
-    #get features
-    phdata = pool.map(getfeatures,inputs)
-    #filter out empty
-    phdata = [ex for ex in phdata if ex[2]]
-    allphdata += phdata
-    #writeout pickle
-    outname = os.path.basename(fname).replace('.types','_ph.pkl.gz')
-    outpath = os.path.join(output_path, outname)
-    with gzip.open(outpath,'wb') as out:
-        pickle.dump(phdata,out)
+if __name__ == "__main__":
+
+    args = parse_args()
+
+    # process config file into dictionary
+    with open(args.config, 'r') as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+
+    data_path = args.crossdocked_dir
+    output_path = config['dataset']['processed_data_dir']
+
+    # all inputs is a list of tuples. Each tuple has length 2.
+    # the first entry in the tuple is the filepath of the types file for which this data point came from
+    # the second entry in the tuple is itself a list of tuples. Each tuple has length 2.
+    # the first entry in the tuple is the filepath of the receptor file, the second entry is the filepath of the ligand file
+    allinputs = []
+    #should path to types be a separate argument ?
+    types_files = os.path.join(data_path,'types','it2_tt_v1.3_0_test*types')
+    for fname in glob.glob(types_files):
+        #pull out good rmsd lines only
+        f = open(fname)
+        # inputs is a list which contains tuples of length 2. the first item in each tuple is the receptor file name and the second item is the ligand file name
+        inputs = [] 
+        for line in f:
+            label,affinity,rmsd,rec,glig,_ = line.split()
+            if label == '1':
+                inputs.append((rec,glig))
+        allinputs.append((fname,inputs))
+
+    #collect and parse all receptors
+    # I don't think this is actually necessary right now
+    # receptors = dict()
+    # for fname, inputs in allinputs:
+    #     for rec,lig in tqdm(inputs):
+    #         rec = rec.replace('_0.gninatypes','.pdb')           
+    #         rec_path = os.path.join(data_path, rec)
+            
+    #         if rec not in receptors:
+    #             receptors[rec] = Chem.MolFromPDBBlock(open(rec_path).read(),sanitize=False)
+
+    # receptors_path = os.path.join(output_path, 'receptors.pkl.gz')
+    # with gzip.open(receptors_path,'wb') as recout:
+    #     pickle.dump(receptors,recout)
+        
+
+    # set the arguments from config which need to be passed to the getfeatures function
+    getfeatures_partial = partial(getfeatures, pocket_cutoff=config['dataset']['pocket_cutoff'])
+
+    pool = multiprocessing.Pool()
+    allphdata = []
+    for fname, inputs in allinputs:
+        #get features
+        phdata = pool.map(getfeatures_partial, inputs, )
+        #filter out empty
+        # the third entry in each tuple is the ligand molecule as an rdkit object, which is None if the ligand molecule could not be parsed
+        phdata = [ex for ex in phdata if ex[2]]
+        allphdata += phdata
+        #writeout pickle
+        outname = os.path.basename(fname).replace('.types','_ph.pkl.gz')
+        outpath = os.path.join(output_path, outname)
+        with gzip.open(outpath,'wb') as out:
+            pickle.dump(phdata,out)
