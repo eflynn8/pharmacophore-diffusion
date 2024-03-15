@@ -8,7 +8,15 @@
 
 ## number of steps in the pipeline
 
-We currently have 2 "processing" steps in the pipeline. First, we use 
+We currently have 2 "processing" steps in the pipeline:
+1. we use `pharma_process.py` to crawl over the crossdocked dataset, and extract pharmacophores/pocket features. The output of this script is a couple of pickle files.
+2. The pickle files are read in by the dataset class (`dataset.protein_pharm_dataset.ProteinPharmacophoreDataset`). The dataset class is responsible for processing these pickle files into the big tensors that are ultimately fed into the model. It also saves the processed tensors to disk. Logistically, this gets really messy. Because now we have arguments to the dataset class to specify a few things. First, whether to load the processed tensosr from disk, or to process the pickle files. Also, we now have to specify both the location of the pickle files and the location of the processed data. 
+
+## Mixing together the "Dataset class" and the second "data processing" step
+
+As mentioned above, the dataset class is now responsible for both typical dataset class things AND processing the pickle files. What this means is, if I want to process the dataset, I need to run the training script. Logistically this is kind of annoying. Now our config file needs to contain information about whether when we run the training script, are we processing the pickle files first? or using some existing pickle files? What if I just want to process the dataset once, and then have many models use the same processed dataset? I would need to have a special config file that is just used for data processing, and a separate config file for the models that are ACTUALLY training, and these separate config files are just so we can accomoplish completeley different tasks using the same script (`train.py`). This is confusing and annoying and just bad design. 
+
+I would rather have a separate script that processes the data, and then the dataset class only reads from the processed data. If we have these things as two separate scripts, then the arugments that need to be passed / the logic that needs to be performed within each script is a lot more clear. It results in a more concrete delegation of responsiblities to various components of the codebase. 
 
 
 ## ease of extension to other datasets
