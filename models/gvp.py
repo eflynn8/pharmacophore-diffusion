@@ -93,12 +93,12 @@ class GVP(nn.Module):
         assert c == 3 and v == self.dim_vectors_in, 'vectors have wrong dimensions'
         assert n == self.dim_feats_in, 'scalar features have wrong dimensions'
 
-        Vh = einsum('b v c, v h -> b h c', vectors, self.Wh)
+        Vh = einsum('b v c, v h -> b h c', vectors.float(), self.Wh)
         Vu = einsum('b h c, h u -> b u c', Vh, self.Wu)
 
         sh = _norm_no_nan(Vh)
 
-        s = torch.cat((feats, sh), dim = 1)
+        s = torch.cat((feats.float(), sh), dim = 1)
 
         feats_out = self.to_feats_out(s)
 

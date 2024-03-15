@@ -119,19 +119,19 @@ class PharmacophoreDiff(pl.LightningModule):
 
         return sigma2_t_given_s, sigma_t_given_s, alpha_t_given_s
     
-    def encode_receptors(self, g: dgl.DGLHeteroGraph):
-        #it seems all I need to do for now is add vector features
+    # def encode_receptors(self, g: dgl.DGLHeteroGraph):
+    #     #it seems all I need to do for now is add vector features
 
-        device = g.device
-        # get batch indicies of every ligand and keypoint - useful later
-        batch_idx = torch.arange(g.batch_size, device=device)
-        prot_batch_idx = batch_idx.repeat_interleave(g.batch_num_nodes('prot'))
-        batch_idxs = get_batch_idxs(g)
+    #     device = g.device
+    #     # get batch indicies of every ligand and keypoint - useful later
+    #     batch_idx = torch.arange(g.batch_size, device=device)
+    #     prot_batch_idx = batch_idx.repeat_interleave(g.batch_num_nodes('prot'))
+    #     batch_idxs = get_batch_idxs(g)
 
-        #add vector features to proteins
-        g.nodes['prot'].data['v_0'] = torch.zeros((g.num_nodes('prot'), self.n_vec_feats, 3), device=device)
+    #     #add vector features to proteins
+    #     g.nodes['prot'].data['v_0'] = torch.zeros((g.num_nodes('prot'), self.vector_size, 3), device=device)
 
-        return g
+    #     return g
     
     def forward(self, g: dgl.DGLHeteroGraph):
 
@@ -143,8 +143,8 @@ class PharmacophoreDiff(pl.LightningModule):
         batch_size = g.batch_size
         device = g.device
         
-        # encode receptors
-        g = self.encode_receptors(g)
+        # # encode receptors
+        # g = self.encode_receptors(g)
 
         batch_idxs = get_batch_idxs(g)
         
@@ -194,8 +194,8 @@ class PharmacophoreDiff(pl.LightningModule):
         current_epoch = self.current_epoch + batch_idx / self.num_training_batches()
         # self.lr_scheduler.step_lr(current_epoch, self.optimizers())
         loss_dict = self.forward(protpharm_graphs)
-        loss_dict['total loss'] = torch.sum(loss_dict.values())
-        self.log_dict(loss_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True)
+        loss_dict['total loss'] = torch.sum(torch.stack(list(loss_dict.values()), dim=0))
+        self.log_dict(loss_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
         return loss_dict['total loss']
     
     def validation_step(self, batch, batch_idx):
