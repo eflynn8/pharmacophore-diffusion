@@ -54,9 +54,12 @@ class CrossdockedDataModule(pl.LightningDataModule):
     def setup(self, stage: str):
 
         if stage == 'fit':
-            self.train_dataset = MoleculeDataset('train', self.dataset_config, prior_config=self.prior_config)
-            self.val_dataset = MoleculeDataset('val', self.dataset_config, prior_config=self.prior_config)
+            self.train_dataset = ProteinPharmacophoreDataset(self.train_split_idxs, **self.dataset_config)
+            self.val_dataset = ProteinPharmacophoreDataset(self.val_split_idxs, **self.dataset_config)
 
     
     def train_dataloader(self):
         return get_dataloader(self.train_dataset, self.batch_size, self.num_workers)
+
+    def val_dataloader(self):
+        return get_dataloader(self.val_dataset, self.batch_size, self.num_workers)

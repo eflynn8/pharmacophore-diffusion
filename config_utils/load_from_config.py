@@ -25,18 +25,12 @@ def model_from_config(config: dict) -> PharmacophoreDiff:
 
 def data_module_from_config(config: dict) -> CrossdockedDataModule:
 
-    # TODO: create dataset class (or, alternatively, a PL datamodule)
-    data_files = config['dataset']['data_files']
-    rec_file = config['dataset']['rec_file']
-    processed_data_dir = config['dataset']['processed_data_dir']
-    prot_elements = config['dataset']['prot_elements']
-    # pocket_cutoff = config['dataset']['pocket_cutoff']
-    # dataset_size = config['dataset']['dataset_size']
-    load_data = config['dataset']['load_data']
-    subsample_pharms = config['dataset']['subsample_pharms']
-    graph_cutoffs = config['dataset']['graph_cutoffs']
-    dataset = ProteinPharmacophoreDataset(name= 'PROTPHARMTRAIN', data_files=data_files, processed_data_dir=processed_data_dir, rec_file=rec_file, 
-                prot_elements=prot_elements, load_data=load_data, subsample_pharms=subsample_pharms, graph_cutoffs=graph_cutoffs)
+    dataset_config = config['dataset']
+    graph_cutoffs = config['graph']['graph_cutoffs']
+    dataset_config['graph_cutoffs'] = graph_cutoffs
     
-    data_module = CrossdockedDataModule(dataset=dataset, batch_size=config['training']['batch_size'], num_workers=config['training']['num_workers'])
+    data_module = CrossdockedDataModule(dataset_config=config['dataset'], 
+        batch_size=config['training']['batch_size'], 
+        num_workers=config['training']['num_workers'], 
+        validation_splits=config['training']['validation_splits'])
     return data_module
