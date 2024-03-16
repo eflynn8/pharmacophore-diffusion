@@ -18,8 +18,7 @@ class CrossdockedDataModule(pl.LightningDataModule):
                  dataset_config: dict, 
                  batch_size: int,
                  num_workers: int,
-                 validation_splits: List[int] = [],
-                 **kwargs):
+                 validation_splits: List[int] = [],):
         
         super().__init__()
         self.dataset_config = dataset_config

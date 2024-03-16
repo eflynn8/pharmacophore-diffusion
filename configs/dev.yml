@@ -3,6 +3,7 @@ training:
   batch_size: 32
   weight_decay: 1.0e-12
   num_workers: 0
+  validation_splits: [2]
   trainer_args:
     max_epochs: 3
     accelerator: gpu
