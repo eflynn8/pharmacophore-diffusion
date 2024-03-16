@@ -75,14 +75,14 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         for i in range(1, len(pharm_idx_arrs)):
             n_graphs_prev = np.sum([len(arr) for arr in pharm_idx_arrs[:i]])
             n_graphs_this_arr = len(pharm_idx_arrs[i])
-            self.pharm_idx[n_graphs_prev:n_graphs_prev+n_graphs_this_arr] += self.pharm_idx_arrs[i-1][-1, 1]
+            self.pharm_idx[n_graphs_prev:n_graphs_prev+n_graphs_this_arr] += self.pharm_idx[n_graphs_prev-1, 1]
 
         # do the same conversion for prot_idx_arrs
         self.prot_idx = np.concatenate(prot_idx_arrs, axis=0)
         for i in range(1, len(prot_idx_arrs)):
             n_graphs_prev = np.sum([len(arr) for arr in prot_idx_arrs[:i]])
             n_graphs_this_arr = len(prot_idx_arrs[i])
-            self.prot_idx[n_graphs_prev:n_graphs_prev+n_graphs_this_arr] += self.prot_idx_arrs[i-1][-1, 1]
+            self.prot_idx[n_graphs_prev:n_graphs_prev+n_graphs_this_arr] += self.prot_idx[n_graphs_prev-1, 1]
 
         # convert pos, feat, and idx arrays into torch tensors
         self.pharm_pos = torch.from_numpy(self.pharm_pos)
