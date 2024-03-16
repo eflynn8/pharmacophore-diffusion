@@ -48,7 +48,6 @@ dataset:
   min_pharm_centers: 3
   dataset_size: 1000 # used only for debugging
   subsample_pharms: True
-  graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
   
   
 graph:

@@ -1,7 +1,7 @@
 from models.pharmacodiff import PharmacophoreDiff
 from pathlib import Path
 from dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
-from dataset.protein_pharmacophore_datamodule import ProtPharmDataModule
+from dataset.protein_pharmacophore_datamodule import CrossdockedDataModule
 
 def model_from_config(config: dict) -> PharmacophoreDiff:
 
@@ -23,7 +23,7 @@ def model_from_config(config: dict) -> PharmacophoreDiff:
 
     return model
 
-def data_module_from_config(config: dict) -> ProtPharmDataModule:
+def data_module_from_config(config: dict) -> CrossdockedDataModule:
 
     # TODO: create dataset class (or, alternatively, a PL datamodule)
     data_files = config['dataset']['data_files']
@@ -38,5 +38,5 @@ def data_module_from_config(config: dict) -> ProtPharmDataModule:
     dataset = ProteinPharmacophoreDataset(name= 'PROTPHARMTRAIN', data_files=data_files, processed_data_dir=processed_data_dir, rec_file=rec_file, 
                 prot_elements=prot_elements, load_data=load_data, subsample_pharms=subsample_pharms, graph_cutoffs=graph_cutoffs)
     
-    data_module = ProtPharmDataModule(dataset=dataset, batch_size=config['training']['batch_size'], num_workers=config['training']['num_workers'])
+    data_module = CrossdockedDataModule(dataset=dataset, batch_size=config['training']['batch_size'], num_workers=config['training']['num_workers'])
     return data_module
