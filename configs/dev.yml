@@ -46,7 +46,7 @@ dataset:
   ph_type_map: [    'Aromatic', 'HydrogenDonor', 'HydrogenAcceptor', 'PositiveIon', 'NegativeIon', 'Hydrophobic']
   pocket_cutoff: 8 # angstroms
   min_pharm_centers: 3
-  dataset_size: 200 # used only for debugging
+  dataset_size: 1000 # used only for debugging
   subsample_pharms: True
   graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
   

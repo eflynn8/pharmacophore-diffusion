@@ -15,10 +15,13 @@ from pathlib import Path
 import yaml
 from functools import partial
 from constants import ph_type_to_idx
+from tqdm.contrib.concurrent import process_map
+from typing import Dict
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="Path to config file", required=True, type=Path)
+    parser.add_argument('--max_workers', type=int, default=None, help='Number of workers to use for multiprocessing, default to max available.')
     args = parser.parse_args()
     return args
 
@@ -30,7 +33,7 @@ def element_fixer(element: str):
     return element
 
 
-def getfeatures(reclig, pocket_cutoff: int = 8):
+def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
     
     # reclig is a tuple of length 2. The first entry is the receptor file name and the second entry is the ligand file name
 
@@ -41,9 +44,12 @@ def getfeatures(reclig, pocket_cutoff: int = 8):
     num = int(m.group(2))
     lig = prefix+'.sdf.gz'
     
-    rec_path = os.path.join(data_path, rec)
-    lig_path = os.path.join(data_path, lig)
+    rec_path = crossdocked_data_dir / rec
+    lig_path = crosdocked_data_dir / lig
+    rec_path = str(rec_path)
+    lig_path = str(lig_path)
     
+    # why are we doing this? should we instead print some warning? something more informative?
     if not os.path.exists(rec_path):
         print(rec_path)
     if not os.path.exists(lig_path):
@@ -133,6 +139,9 @@ def getfeatures(reclig, pocket_cutoff: int = 8):
             return((rec,glig,None,None,None))
         
 def write_processed_dataset(processed_data_dir: str, types_file_path: str, data: list, pocket_element_map: list, min_pharm_centers = 3):
+    
+    pocket_element_to_idx = {element: idx for idx, element in enumerate(pocket_element_map)}
+    
     prot_file_name = []
     pharm_file_name = []
     lig_rdmol = []
@@ -166,7 +175,11 @@ def write_processed_dataset(processed_data_dir: str, types_file_path: str, data:
     pharm_pos = np.concatenate(pharm_pos_arr, axis=0, dtype=np.float32)
     pharm_feat = np.concatenate(pharm_feat_arr, axis=0, dtype=np.int32)
     prot_pos = np.concatenate(prot_pos_arr, axis=0, dtype=np.float32)
-    prot_feat = np.concatenate(prot_feat_arr, axis=0, dtype=np.int32)
+
+    # convert pocket elements from strings to integers and concatenate into a single array
+    prot_feat = np.concatenate(prot_feat_arr, axis=0)
+    prot_feat_idxs = np.array([pocket_element_to_idx[el] for el in prot_feat])
+    prot_feat = np.array(prot_feat_idxs, dtype=np.int32)
 
     # create an array of indicies to keep track of the start_idx and end_idx of each pharmacophore
     pharm_idx_array = np.zeros((len(pharm_pos_arr), 2), dtype=int)
@@ -179,7 +192,7 @@ def write_processed_dataset(processed_data_dir: str, types_file_path: str, data:
     prot_idx_array[1:, 0] = prot_idx_array[:-1, 1]
 
     # get the processed output directory for this types file
-    types_file_stem = Path(types_file_path).name.split('.')[0]
+    types_file_stem = Path(types_file_path).name.split('.types')[0]
     output_dir = Path(processed_data_dir) / types_file_stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -210,7 +223,8 @@ if __name__ == "__main__":
     with open(args.config, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
-    data_path = config['dataset']['raw_data_dir']
+    crossdocked_path = config['dataset']['raw_data_dir']
+    crosdocked_data_dir = Path(crossdocked_path) / 'CrossDocked2020'
     output_path = config['dataset']['processed_data_dir']
     dataset_size = config['dataset']['dataset_size']
 
@@ -220,7 +234,7 @@ if __name__ == "__main__":
     # the first entry in the tuple is the filepath of the receptor file, the second entry is the filepath of the ligand file
     allinputs = []
     #should path to types be a separate argument ?
-    types_files = os.path.join(data_path,'types','it2_tt_v1.3_0_test*types')
+    types_files = os.path.join(crossdocked_path,'types','it2_tt_v1.3_0_test*types')
     for fname in glob.glob(types_files):
         #pull out good rmsd lines only
         f = open(fname)
@@ -238,6 +252,9 @@ if __name__ == "__main__":
 
     #collect and parse all receptors
     # I don't think this is actually necessary right now
+    # leaving it here incase we change our minds
+    # but for now the startegy is to read the the original receptor pdb file if its needed
+    # the filepath of which is made available as part of the processed dataset
     # receptors = dict()
     # for fname, inputs in allinputs:
     #     for rec,lig in tqdm(inputs):
@@ -253,28 +270,26 @@ if __name__ == "__main__":
         
 
     # set the arguments from config which need to be passed to the getfeatures function
-    getfeatures_partial = partial(getfeatures, pocket_cutoff=config['dataset']['pocket_cutoff'])
+    getfeatures_partial = partial(getfeatures, crossdocked_data_dir=crosdocked_data_dir, pocket_cutoff=config['dataset']['pocket_cutoff'])
 
-    pool = multiprocessing.Pool()
     allphdata = []
     for fname, inputs in allinputs:
-        #get features
-        phdata = pool.map(getfeatures_partial, inputs, )
-        #filter out empty
-        # the third entry in each tuple is the ligand molecule as an rdkit object, which is None if the ligand molecule could not be parsed
+
+        # print the fname we are processing
+        print(f'processing types file {fname}')
+
+        # extract features for each protein-ligand pair
+        if args.max_workers:
+            phdata = process_map(getfeatures_partial, inputs, max_workers=args.max_workers)
+        else:
+            phdata = process_map(getfeatures_partial, inputs)
+
+        # the third entry in each tuple is the ligand molecule as an rdkit object, which is None if 
+        # the ligand molecule could not be parsed. we filter out these examples
         phdata = [ex for ex in phdata if ex[2]]
-        # allphdata += phdata
 
 
         # process into tensors
         write_processed_dataset(output_path, fname, phdata,
                                 pocket_element_map=config['dataset']['prot_elements'],
                                 min_pharm_centers=config['dataset']['min_pharm_centers'])
-
-
-
-        #writeout pickle
-        # outname = os.path.basename(fname).replace('.types','_ph.pkl.gz')
-        # outpath = os.path.join(output_path, outname)
-        # with gzip.open(outpath,'wb') as out:
-        #     pickle.dump(phdata,out)

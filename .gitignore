@@ -1,6 +1,7 @@
 # project-specific things to ignore
 data/crossdocked_pharm_extracted
 data/crossdocked_processed
+data/crossdocked_raw
 .vscode/
 
 # Byte-compiled / optimized / DLL files
