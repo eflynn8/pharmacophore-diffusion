@@ -201,8 +201,8 @@ class PharmacophoreDiff(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         protpharm_graphs = batch
         loss_dict = self.forward(protpharm_graphs)
-        loss_dict['total loss'] = torch.sum(loss_dict.values())
-        self.log_dict(loss_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True)
+        loss_dict['total loss'] = sum(list(loss_dict.values()))
+        self.log_dict(loss_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=batch.batch_size)
         return loss_dict['total loss']
     
 

@@ -12,6 +12,7 @@ import numpy as np
 import random
 from torch_cluster import radius_graph
 import gzip
+from torch.nn.functional import one_hot
 
 # from data_processing.pdbbind_processing import (build_initial_complex_graph,
 #                                                 get_pocket_atoms, parse_ligand,
@@ -20,16 +21,18 @@ import gzip
 class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
     def __init__(self,
+        name: str,
         split_idxs: List[int],
         raw_data_dir: str,
         processed_data_dir: str,
         graph_cutoffs: dict,
         prot_elements: List[str],
         ph_type_map: List[str],
-        subsample_pharms: bool = False,):
+        subsample_pharms: bool = False, **kwargs):
 
         self.graph_cutoffs = graph_cutoffs
         self.prot_elements = prot_elements
+        self.ph_type_map = ph_type_map
 
         # if subsample_pharms is True, getitem will return random resamplings of pharmacophores to augment dataset
         self.subsample_pharms = subsample_pharms
@@ -104,6 +107,10 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         prot_pos = self.prot_pos[prot_start_idx:prot_end_idx]
         prot_feat = self.prot_feat[prot_start_idx:prot_end_idx]
 
+        # one-hot encode node features
+        prot_feat = one_hot(prot_feat.long(), num_classes=len(self.prot_elements)).float()
+        pharm_feat = one_hot(pharm_feat.long(), num_classes=len(self.ph_type_map)).float()
+
         ## Subsample pharmacophore features if subsample_pharms is True
         if self.subsample_pharms:
             ## TODO: Remove this length check once only add pharms with more than 2 centers
@@ -147,19 +154,6 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
         return self.prot_file_name[idx], self.pharm_file_name[idx]
 
-## Fn for one-hot encoding pharmacophore features
-## Aromatic, HydrogenDonor, HydrogenAcceptor, PositiveIon, NegativeIon, Hydrophobic
-def one_hot_encode_pharms(arr):
-    one_hot = np.zeros((len(arr), 6))
-    one_hot[np.arange(len(arr)), arr] = 1
-    return one_hot
-
-## Fn for one-hot encoding protein features
-def one_hot_encode_prots(arr, ele_idx_map, num_ele):
-    one_hot = np.zeros((len(arr), num_ele))
-    for i, e in enumerate(arr):
-        one_hot[i, ele_idx_map[e]] = 1
-    return one_hot
 
 def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_features: torch.Tensor, cutoffs: dict, pharm_atom_positions: torch.Tensor = None, pharm_atom_features: torch.Tensor = None):
     if (pharm_atom_positions is not None) ^ (pharm_atom_features is not None):
@@ -191,7 +185,7 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
     }
 
     # create graph object
-    g = dgl.heterograph(graph_data, num_nodes_dict=num_nodes_dict, device='cpu:0').to(torch.device('cuda:0'))
+    g = dgl.heterograph(graph_data, num_nodes_dict=num_nodes_dict)
 
     # add node data
     if pharm_atom_positions is not None:

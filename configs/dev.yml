@@ -9,7 +9,7 @@ training:
     accelerator: gpu
     devices: 1
     accumulate_grad_batches: 1
-    limit_val_batches: 0.05
+    limit_val_batches: 1.0
 
   evaluation:
     n_samples: 64 # how many molecules to sample during evaluation
@@ -27,7 +27,8 @@ lr_scheduler:
 checkpointing:
   save_last: True
   save_top_k: 3
-  monitor: 'val_total_loss'
+  # monitor: 'val_total_loss'
+  monitor: 'total loss'
   every_n_epochs: 1
 
 wandb:
