@@ -1,6 +1,6 @@
 # project-specific things to ignore
-data/crossdocked_pharm_extracted
 data/crossdocked_processed
+data/crossdocked_processed_dev
 data/crossdocked_raw
 .vscode/
 

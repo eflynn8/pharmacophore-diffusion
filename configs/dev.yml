@@ -41,7 +41,7 @@ dataset:
   # TODO: no dataset class actually accesses this information
   # data_files: ['/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test0_ph.pkl', '/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test1_ph.pkl', '/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test2_ph.pkl']
   raw_data_dir: 'data/crossdocked_raw/'
-  processed_data_dir: 'data/crossdocked_processed'
+  processed_data_dir: 'data/crossdocked_processed_dev'
   # data_files: ['data/crossdocked_pharm_extracted/it2_tt_v1.3_0_test0_ph.pkl.gz']
   # rec_file: 'data/crossdocked_pharm_extracted/receptors.pkl.gz'
   prot_elements: ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B', 'D'] # ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'Mg', 'Mn', 'Zn', 'Ca', 'Fe', 'B']

@@ -18,6 +18,9 @@ from constants import ph_type_to_idx
 from tqdm.contrib.concurrent import process_map
 from typing import Dict
 
+from rdkit import RDLogger  
+RDLogger.DisableLog('rdApp.*')  
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="Path to config file", required=True, type=Path)
@@ -274,15 +277,23 @@ if __name__ == "__main__":
 
     allphdata = []
     for fname, inputs in allinputs:
+        
+        # if args.max_workers is None:
+        #     num_workers = multiprocessing.cpu_count()
+        # else:
+        #     num_workers = args.max_workers
+        
+        # chunksize = len(inputs) // num_workers
+        chunksize = 20
 
         # print the fname we are processing
         print(f'processing types file {fname}')
 
         # extract features for each protein-ligand pair
         if args.max_workers:
-            phdata = process_map(getfeatures_partial, inputs, max_workers=args.max_workers)
+            phdata = process_map(getfeatures_partial, inputs, max_workers=args.max_workers, chunksize=chunksize)
         else:
-            phdata = process_map(getfeatures_partial, inputs)
+            phdata = process_map(getfeatures_partial, inputs, chunksize=chunksize)
 
         # the third entry in each tuple is the ligand molecule as an rdkit object, which is None if 
         # the ligand molecule could not be parsed. we filter out these examples
