@@ -20,10 +20,8 @@ from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers import WandbLogger
 
 from config_utils.cmdline import register_hyperparameter_args, merge_config_and_args
-from config_utils.get_model import model_from_config
+from config_utils.load_from_config import model_from_config, data_module_from_config
 from models.pharmacodiff import PharmacophoreDiff
-from dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
-from dataset.protein_pharmacophore_datamodule import ProtPharmDataModule
 
 def parse_arguments():
     p = argparse.ArgumentParser()
@@ -79,20 +77,10 @@ if __name__ == '__main__':
     # merge the config file with the command line arguments
     config = merge_config_and_args(config, args)
 
-    # TODO: create dataset class (or, alternatively, a PL datamodule)
-    data_files = config['dataset']['data_files']
-    rec_file = config['dataset']['rec_file']
-    processed_data_dir = config['dataset']['processed_data_dir']
-    prot_elements = config['dataset']['prot_elements']
-    # pocket_cutoff = config['dataset']['pocket_cutoff']
-    # dataset_size = config['dataset']['dataset_size']
-    load_data = config['dataset']['load_data']
-    subsample_pharms = config['dataset']['subsample_pharms']
-    graph_cutoffs = config['dataset']['graph_cutoffs']
-    dataset = ProteinPharmacophoreDataset(name= 'PROTPHARMTRAIN', data_files=data_files, processed_data_dir=processed_data_dir, rec_file=rec_file, 
-                prot_elements=prot_elements, load_data=load_data, subsample_pharms=subsample_pharms, graph_cutoffs=graph_cutoffs)
+    # instantiate data module
+    data_module = data_module_from_config(config)
 
-    # TODO: instantiate model
+    # instantiate model
     model: PharmacophoreDiff = model_from_config(config)
 
     # get wandb logger config
@@ -162,5 +150,4 @@ if __name__ == '__main__':
     trainer = pl.Trainer(logger=wandb_logger, **trainer_config, callbacks=[checkpoint_callback, pbar_callback])
     
     # train
-    data_module = ProtPharmDataModule(dataset=dataset, batch_size=config['training']['batch_size'], num_workers=config['training']['num_workers'])
     trainer.fit(model, datamodule=data_module, ckpt_path=ckpt_file)

@@ -3,12 +3,13 @@ training:
   batch_size: 32
   weight_decay: 1.0e-12
   num_workers: 0
+  validation_splits: [2]
   trainer_args:
     max_epochs: 3
     accelerator: gpu
     devices: 1
     accumulate_grad_batches: 1
-    limit_val_batches: 0.05
+    limit_val_batches: 1.0
 
   evaluation:
     n_samples: 64 # how many molecules to sample during evaluation
@@ -26,7 +27,8 @@ lr_scheduler:
 checkpointing:
   save_last: True
   save_top_k: 3
-  monitor: 'val_total_loss'
+  # monitor: 'val_total_loss'
+  monitor: 'total loss'
   every_n_epochs: 1
 
 wandb:
@@ -38,17 +40,16 @@ wandb:
 dataset:
   # TODO: no dataset class actually accesses this information
   # data_files: ['/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test0_ph.pkl', '/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test1_ph.pkl', '/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test2_ph.pkl']
-  data_files: ['/home/elf152/Documents/pharmacoflow/it2_tt_v1.3_0_test0_ph.pkl']
-  rec_file: 'dataset/receptors.pkl.gz'
-  # processed_data_dir: 'data/crossdock_processed'
-  processed_data_dir: 'data/'
+  raw_data_dir: 'data/crossdocked_raw/'
+  processed_data_dir: 'data/crossdocked_processed_dev'
+  # data_files: ['data/crossdocked_pharm_extracted/it2_tt_v1.3_0_test0_ph.pkl.gz']
+  # rec_file: 'data/crossdocked_pharm_extracted/receptors.pkl.gz'
   prot_elements: ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B', 'D'] # ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'Mg', 'Mn', 'Zn', 'Ca', 'Fe', 'B']
   ph_type_map: [    'Aromatic', 'HydrogenDonor', 'HydrogenAcceptor', 'PositiveIon', 'NegativeIon', 'Hydrophobic']
   pocket_cutoff: 8 # angstroms
-  dataset_size: 15 # used only for debugging
-  load_data: False
+  min_pharm_centers: 3
+  dataset_size: 1000 # used only for debugging
   subsample_pharms: True
-  graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
   
   
 graph:
