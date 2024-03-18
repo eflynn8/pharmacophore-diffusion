@@ -295,9 +295,22 @@ if __name__ == "__main__":
         else:
             phdata = process_map(getfeatures_partial, inputs, chunksize=chunksize)
 
+        n_samples = len(phdata)
+
         # the third entry in each tuple is the ligand molecule as an rdkit object, which is None if 
         # the ligand molecule could not be parsed. we filter out these examples
         phdata = [ex for ex in phdata if ex[2]]
+
+        n_bad_ligands = n_samples - len(phdata)
+
+        # also skip examples which failed to obtain any pharmacophore points
+        phdata = [ex for ex in phdata if isinstance(ex[3][0], np.ndarray)]
+
+        n_bad_pharm = n_samples - len(phdata) - n_bad_ligands
+
+        print(f'{n_samples} samples in {fname}')
+        print(f'failed to parse {n_bad_ligands} ligands and failed to obtain pharmacophore points for {n_bad_pharm} examples')
+        print(f'processed {len(phdata)} examples')
 
 
         # process into tensors
