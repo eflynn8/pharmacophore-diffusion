@@ -131,9 +131,7 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         return complex_graph
 
     def __len__(self):
-        ## TODO: Uncomment once fix prot file tensor
-        # return self.prot_file_name.shape[0] - 1
-        return int(self.prot_idx.shape[0] / 2)
+        return self.prot_idx.shape[0]
 
     def lig_atom_idx_to_element(self, element_idxs: List[int]):
         atom_elements = [ self.lig_reverse_map[element_idx] for element_idx in element_idxs ]
