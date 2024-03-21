@@ -14,10 +14,6 @@ from torch_cluster import radius_graph
 import gzip
 from torch.nn.functional import one_hot
 
-# from data_processing.pdbbind_processing import (build_initial_complex_graph,
-#                                                 get_pocket_atoms, parse_ligand,
-#                                                 parse_protein, get_ot_loss_weights)
-
 class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
     def __init__(self,
@@ -113,8 +109,6 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
         ## Subsample pharmacophore features if subsample_pharms is True
         if self.subsample_pharms:
-            ## TODO: Remove this length check once only add pharms with more than 2 centers
-            print("Number of Pharm Centers: ", len(pharm_pos))
             if len(pharm_pos) > 2:
                 n_pharm_centers = random.randint(3, min(7, len(pharm_pos)))
                 pharm_idxs = random.sample(range(len(pharm_pos)), n_pharm_centers)

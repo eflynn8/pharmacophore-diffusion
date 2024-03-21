@@ -199,15 +199,20 @@ class PharmRecDynamicsGVP(nn.Module):
         # add prot-pharm edges
         if self.pf_k > 0:
             ### Change to knn instead of knn_graph and check which idxs belong to prots and which to pharms
-            pf_idxs = knn(g.nodes['pharm'].data['x_0'], g.nodes['prot'].data['x_0'], k=self.pf_k, batch_x=pharm_batch_idx, batch_y=prot_batch_idx)
-            print("VERIFY PF EDGES!")
-            print("PF Idxs: ", pf_idxs)
+            pf_idxs = knn(g.nodes['prot'].data['x_0'], g.nodes['pharm'].data['x_0'], k=self.pf_k, batch_x=prot_batch_idx, batch_y=pharm_batch_idx)
+            # print("VERIFY PF EDGES!")
+            # print("PF Idxs: ", pf_idxs)
+            ## The edge lists are flipped for knn vs radius
+            g.add_edges(pf_idxs[1], pf_idxs[0], etype='pf')
+
+            # add pharm-prot edges  
+            g.add_edges(pf_idxs[0], pf_idxs[1], etype='fp')
         else:     
             pf_idxs = radius(x=g.nodes['pharm'].data['x_0'], y=g.nodes['prot'].data['x_0'], batch_x=pharm_batch_idx, batch_y=prot_batch_idx, r=self.graph_cutoffs['pf'], max_num_neighbors=100)
-        g.add_edges(pf_idxs[0], pf_idxs[1], etype='pf')
+            g.add_edges(pf_idxs[0], pf_idxs[1], etype='pf')
 
-        # add pharm-prot edges  
-        g.add_edges(pf_idxs[1], pf_idxs[0], etype='fp')
+            # add pharm-prot edges  
+            g.add_edges(pf_idxs[1], pf_idxs[0], etype='fp')
 
 
         # compute batch information
