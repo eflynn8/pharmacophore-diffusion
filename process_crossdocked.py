@@ -1,12 +1,12 @@
 import re, subprocess, os, gzip, json, glob, multiprocessing
 import numpy as np
 from rdkit.Chem import AllChem as Chem
+from rdkit.Chem import MolFromSmarts, MolFromPDBFile, rdmolfiles
 import tempfile
 import pickle
 from tqdm import tqdm
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, PDBio
 from Bio.PDB.Polypeptide import is_aa
-from Bio.PDB import PDBIO
 from scipy.spatial.distance import cdist
 import Bio
 import Bio.SeqUtils
@@ -17,7 +17,10 @@ from functools import partial
 from constants import ph_type_to_idx
 from tqdm.contrib.concurrent import process_map
 from typing import Dict
-
+try:
+    from molgrid.openbabel import pybel
+except ImportError:
+    from openbabel import pybel
 from rdkit import RDLogger  
 RDLogger.DisableLog('rdApp.*')  
 
@@ -32,9 +35,54 @@ def element_fixer(element: str):
 
     if len(element) > 1:
         element = element[0] + element[1:].lower()
-    
     return element
 
+def get_mol_pharm(rdmol,obmol):
+    # define smarts strings
+    #use both openbabel and rdkit to get the smarts matches
+    smarts={}
+    #arginine and lysine added to aromatic for cation pi interactions
+    smarts['Aromatic']=["a1aaaaa1", "a1aaaa1","[$(C(N)(N)=N)]", "[$(n1cc[nH]c1)]"]
+    smarts['PositiveIon'] = ['[+,+2,+3,+4]',"[$(C(N)(N)=N)]", "[$(n1cc[nH]c1)]"]
+    smarts['NegativeIon'] = ['[-,-2,-3,-4]',"C(=O)[O-,OH,OX1]"]
+    smarts['HydrogenAcceptor']=["[#7&!$([nX3])&!$([NX3]-*=[!#6])&!$([NX3]-[a])&!$([NX4])&!$(N=C([C,N])N)]","[$([O])&!$([OX2](C)C=O)&!$(*(~a)~a)]"]
+    smarts['HydrogenDonor']=["[#7!H0&!$(N-[SX4](=O)(=O)[CX4](F)(F)F)]", "[#8!H0&!$([OH][C,S,P]=O)]","[#16!H0]"]
+    smarts['Hydrophobic']=["a1aaaaa1","a1aaaa1","[$([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])&!$(**[CH3X4,CH2X3,CH1X2,F,Cl,Br,I])]",
+                            "[$(*([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])[CH3X4,CH2X3,CH1X2,F,Cl,Br,I])&!$(*([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])[CH3X4,CH2X3,CH1X2,F,Cl,Br,I])]([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])[CH3X4,CH2X3,CH1X2,F,Cl,Br,I]",
+                            "[CH2X4,CH1X3,CH0X2]~[CH3X4,CH2X3,CH1X2,F,Cl,Br,I]","[$([CH2X4,CH1X3,CH0X2]~[$([!#1]);!$([CH2X4,CH1X3,CH0X2])])]~[CH2X4,CH1X3,CH0X2]~[CH2X4,CH1X3,CH0X2]",
+                            "[$([S]~[#6])&!$(S~[!#6])]"]
+
+    atoms = obmol.atoms
+    pharmit_feats={}
+    for key in smarts.keys():
+        for smart in smarts[key]:
+            obsmarts = pybel.Smarts(smart) # Matches an ethyl group
+            matches = obsmarts.findall(obmol)
+            for match in matches:
+                positions=[]
+                for idx in match:
+                    positions.append(np.array(atoms[idx-1].coords))
+                positions=np.array(positions).mean(axis=0)
+                if key in pharmit_feats.keys():
+                    pharmit_feats[key].append(positions)
+                else:
+                    pharmit_feats[key]=[positions]
+            try: 
+                smarts_mol=MolFromSmarts(smart)
+                rd_matches=rdmol.GetSubstructMatches(smarts_mol,uniquify=True)
+                for match in rd_matches:
+                    positions=[]
+                    for idx in match:
+                        positions.append(np.array(atoms[idx].coords))
+                    positions=np.array(positions).mean(axis=0)
+                    if key in pharmit_feats.keys():
+                        if positions not in pharmit_feats[key]:
+                            pharmit_feats[key].append(positions)
+                    else:
+                        pharmit_feats[key]=[positions]
+            except:
+                pass
+    return pharmit_feats
 
 def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
     
@@ -48,7 +96,7 @@ def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
     lig = prefix+'.sdf.gz'
     
     rec_path = crossdocked_data_dir / rec
-    lig_path = crosdocked_data_dir / lig
+    lig_path = crossdocked_data_dir / lig
     rec_path = str(rec_path)
     lig_path = str(lig_path)
     
@@ -99,7 +147,24 @@ def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
                 del supp
 
             lig_coords = ligand.GetConformer().GetPositions()
-             # get residues which constitute the binding pocket
+            
+            # get pocket features
+            pocket_feat_kind = []
+            pocket_feat_coords = []
+            rdmol = rdmolfiles.MolFromPDBFile(rec_path,sanitize=True)
+            obmol = next(pybel.readfile("pdb", rec_path))
+            # get feature positions dictionary
+            rec_pharm = get_mol_pharm(rdmol, obmol)
+            # include features within cutoff distance from ligand
+            for feature, coords in rec_pharm.items():
+                for coord in coords:
+                    distances = cdist([coord], lig_coords)
+                    if np.any(distances < pocket_cutoff):
+                        pocket_feat_coords.append(coord)
+                        pocket_feat_kind.append(ph_type_to_idx[feature])            
+
+
+            # get residues which constitute the binding pocket
             pocket_residues = []
             for residue in pdb_struct[0].get_residues():
                 # get atomic coordinates of residue
@@ -112,13 +177,14 @@ def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
                 min_rl_dist = cdist(lig_coords, res_coords).min()
                 if min_rl_dist < pocket_cutoff:
                     pocket_residues.append(residue)
+            
 
             atom_filter = lambda a: a.element != "H"
             pocket_atomres = []
             for res in pocket_residues:
                 atom_list = res.get_atoms()
                 pocket_atomres.extend([(a, res) for a in atom_list if atom_filter(a) ])
-
+                
             pocket_atoms, atom_residues = list(map(list, zip(*pocket_atomres)))
 
             pocket_coords = np.array([ar[0].get_coord() for ar in pocket_atomres])
@@ -126,6 +192,8 @@ def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
             pocket_anames = np.array([ar[0].name for ar in pocket_atomres])
             pocket_res = np.array([Bio.PDB.Polypeptide.three_to_index(ar[1].resname) for ar in pocket_atomres])
             pocket_rid = np.array([ar[1].id[1] for ar in pocket_atomres])
+            pocket_feat_coords = np.array(pocket_feat_coords)
+            pocket_feat_kind = np.array(pocket_feat_kind)
             #receptor and features are needed for training
             #glig is included for reference back to original data for debugging
 
@@ -134,8 +202,8 @@ def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
             # ligand is the ligand molecule as an rdkit object
             # feature_coords is the cartesian coordinates of the pharmacophore centers
             # feature_kind is the integer type of each pharmacophore center
-
-            return ((rec,glig,ligand,(feature_coords, feature_kind),(pocket_coords, pocket_elements, pocket_anames, pocket_res, pocket_rid)))    
+            
+            return ((rec,glig,ligand,(feature_coords, feature_kind),(pocket_coords, pocket_elements, pocket_feat_coords, pocket_feat_kind, pocket_anames, pocket_res, pocket_rid)))    
         except Exception as e:
             print(e)
             print(rec,glig)
@@ -152,6 +220,9 @@ def write_processed_dataset(processed_data_dir: str, types_file_path: str, data:
     pharm_feat_arr = []
     prot_pos_arr = []
     prot_feat_arr = []
+    prot_ph_pos_arr = []
+    prot_ph_feat_arr = []
+    
 
     for item in data:
 
@@ -167,17 +238,24 @@ def write_processed_dataset(processed_data_dir: str, types_file_path: str, data:
         pharm_feat_arr.append(item[3][1])
         prot_pos_arr.append(item[4][0])
         prot_feat_arr.append(item[4][1])
+        prot_ph_pos_arr.append(item[4][2])
+        prot_ph_feat_arr.append(item[4][3])
 
     # get the number of pharmacophore centers in every example
     n_centers = np.array([len(x) for x in pharm_pos_arr])
 
     # get the number of receptor atoms in every example
     n_atoms = np.array([len(x) for x in prot_pos_arr])
+    
+    #get the number of receptor pharmacophore centers in every example
+    n_prot_centers = np.array([len(x) for x in prot_ph_pos_arr])
 
-    # concatenate pharm_pos, pharm_feat, prot_pos, prot_feat into single arrays
+    # concatenate pharm_pos, pharm_feat, prot_pos, prot_feat, prot_ph_pos, prot_ph_feat into single arrays
     pharm_pos = np.concatenate(pharm_pos_arr, axis=0, dtype=np.float32)
     pharm_feat = np.concatenate(pharm_feat_arr, axis=0, dtype=np.int32)
     prot_pos = np.concatenate(prot_pos_arr, axis=0, dtype=np.float32)
+    prot_ph_pos = np.concatenate(prot_ph_pos_arr, axis=0, dtype=np.float32)
+    prot_ph_feat = np.concatenate(prot_ph_feat_arr, axis=0, dtype=np.float32)
 
     # convert pocket elements from strings to integers and concatenate into a single array
     prot_feat = np.concatenate(prot_feat_arr, axis=0)
@@ -189,10 +267,15 @@ def write_processed_dataset(processed_data_dir: str, types_file_path: str, data:
     pharm_idx_array[:, 1] = np.cumsum(n_centers)
     pharm_idx_array[1:, 0] = pharm_idx_array[:-1, 1]
 
-    # create an array of indicies to keep track of the start_idx and end_idx of each receptor
+    # create an array of indicies to keep track of the start_idx and end_idx of receptor atoms
     prot_idx_array = np.zeros((len(prot_pos_arr), 2), dtype=int)
     prot_idx_array[:, 1] = np.cumsum(n_atoms)
     prot_idx_array[1:, 0] = prot_idx_array[:-1, 1]
+    
+    # create an array of indicies to keep track of the start_idx and end_idx of receptor features
+    prot_ph_idx_array = np.zeros((len(prot_ph_pos_arr), 2), dtype=int)
+    prot_ph_idx_array[:, 1] = np.cumsum(n_prot_centers)
+    prot_ph_idx_array[1:, 0] = prot_ph_idx_array[:-1, 1]
 
     # get the processed output directory for this types file
     types_file_stem = Path(types_file_path).name.split('.types')[0]
@@ -204,7 +287,8 @@ def write_processed_dataset(processed_data_dir: str, types_file_path: str, data:
     prot_pharm_tensors_file = output_dir / 'prot_pharm_tensors.npz'
     np.savez_compressed(prot_pharm_tensors_file,
                         prot_pos=prot_pos, prot_feat=prot_feat, prot_idx=prot_idx_array,
-                        pharm_pos=pharm_pos, pharm_feat=pharm_feat, pharm_idx=pharm_idx_array,)
+                        pharm_pos=pharm_pos, pharm_feat=pharm_feat, pharm_idx=pharm_idx_array,
+                        prot_ph_pos=prot_ph_pos, prot_ph_feat=prot_ph_feat, prot_ph_idx=prot_ph_idx_array)
     
 
     # write the ligand rdkit molecules to a .pkl.gz file
@@ -227,7 +311,7 @@ if __name__ == "__main__":
         config = yaml.load(f, Loader=yaml.FullLoader)
 
     crossdocked_path = config['dataset']['raw_data_dir']
-    crosdocked_data_dir = Path(crossdocked_path) / 'CrossDocked2020'
+    crossdocked_data_dir = Path(crossdocked_path) / 'CrossDocked2020'
     output_path = config['dataset']['processed_data_dir']
     dataset_size = config['dataset']['dataset_size']
 
@@ -236,7 +320,6 @@ if __name__ == "__main__":
     # the second entry in the tuple is itself a list of tuples. Each tuple has length 2.
     # the first entry in the tuple is the filepath of the receptor file, the second entry is the filepath of the ligand file
     allinputs = []
-    #should path to types be a separate argument ?
     types_files = os.path.join(crossdocked_path,'types','it2_tt_v1.3_0_test*types')
     for fname in glob.glob(types_files):
         #pull out good rmsd lines only
@@ -273,7 +356,7 @@ if __name__ == "__main__":
         
 
     # set the arguments from config which need to be passed to the getfeatures function
-    getfeatures_partial = partial(getfeatures, crossdocked_data_dir=crosdocked_data_dir, pocket_cutoff=config['dataset']['pocket_cutoff'])
+    getfeatures_partial = partial(getfeatures, crossdocked_data_dir=crossdocked_data_dir, pocket_cutoff=config['dataset']['pocket_cutoff'])
 
     allphdata = []
     for fname, inputs in allinputs:
