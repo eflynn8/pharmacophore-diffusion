@@ -1,11 +1,10 @@
 import re, subprocess, os, gzip, json, glob, multiprocessing
 import numpy as np
 from rdkit.Chem import AllChem as Chem
-from rdkit.Chem import MolFromSmarts, MolFromPDBFile, rdmolfiles
 import tempfile
 import pickle
 from tqdm import tqdm
-from Bio.PDB import PDBParser, PDBio
+from Bio.PDB import PDBParser
 from Bio.PDB.Polypeptide import is_aa
 from scipy.spatial.distance import cdist
 import Bio
@@ -17,10 +16,9 @@ from functools import partial
 from constants import ph_type_to_idx
 from tqdm.contrib.concurrent import process_map
 from typing import Dict
-try:
-    from molgrid.openbabel import pybel
-except ImportError:
-    from openbabel import pybel
+
+from dataset.receptor_pharm_features import get_mol_pharm
+
 from rdkit import RDLogger  
 RDLogger.DisableLog('rdApp.*')  
 
@@ -37,52 +35,6 @@ def element_fixer(element: str):
         element = element[0] + element[1:].lower()
     return element
 
-def get_mol_pharm(rdmol,obmol):
-    # define smarts strings
-    #use both openbabel and rdkit to get the smarts matches
-    smarts={}
-    #arginine and lysine added to aromatic for cation pi interactions
-    smarts['Aromatic']=["a1aaaaa1", "a1aaaa1","[$(C(N)(N)=N)]", "[$(n1cc[nH]c1)]"]
-    smarts['PositiveIon'] = ['[+,+2,+3,+4]',"[$(C(N)(N)=N)]", "[$(n1cc[nH]c1)]"]
-    smarts['NegativeIon'] = ['[-,-2,-3,-4]',"C(=O)[O-,OH,OX1]"]
-    smarts['HydrogenAcceptor']=["[#7&!$([nX3])&!$([NX3]-*=[!#6])&!$([NX3]-[a])&!$([NX4])&!$(N=C([C,N])N)]","[$([O])&!$([OX2](C)C=O)&!$(*(~a)~a)]"]
-    smarts['HydrogenDonor']=["[#7!H0&!$(N-[SX4](=O)(=O)[CX4](F)(F)F)]", "[#8!H0&!$([OH][C,S,P]=O)]","[#16!H0]"]
-    smarts['Hydrophobic']=["a1aaaaa1","a1aaaa1","[$([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])&!$(**[CH3X4,CH2X3,CH1X2,F,Cl,Br,I])]",
-                            "[$(*([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])[CH3X4,CH2X3,CH1X2,F,Cl,Br,I])&!$(*([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])[CH3X4,CH2X3,CH1X2,F,Cl,Br,I])]([CH3X4,CH2X3,CH1X2,F,Cl,Br,I])[CH3X4,CH2X3,CH1X2,F,Cl,Br,I]",
-                            "[CH2X4,CH1X3,CH0X2]~[CH3X4,CH2X3,CH1X2,F,Cl,Br,I]","[$([CH2X4,CH1X3,CH0X2]~[$([!#1]);!$([CH2X4,CH1X3,CH0X2])])]~[CH2X4,CH1X3,CH0X2]~[CH2X4,CH1X3,CH0X2]",
-                            "[$([S]~[#6])&!$(S~[!#6])]"]
-
-    atoms = obmol.atoms
-    pharmit_feats={}
-    for key in smarts.keys():
-        for smart in smarts[key]:
-            obsmarts = pybel.Smarts(smart) # Matches an ethyl group
-            matches = obsmarts.findall(obmol)
-            for match in matches:
-                positions=[]
-                for idx in match:
-                    positions.append(np.array(atoms[idx-1].coords))
-                positions=np.array(positions).mean(axis=0)
-                if key in pharmit_feats.keys():
-                    pharmit_feats[key].append(positions)
-                else:
-                    pharmit_feats[key]=[positions]
-            try: 
-                smarts_mol=MolFromSmarts(smart)
-                rd_matches=rdmol.GetSubstructMatches(smarts_mol,uniquify=True)
-                for match in rd_matches:
-                    positions=[]
-                    for idx in match:
-                        positions.append(np.array(atoms[idx].coords))
-                    positions=np.array(positions).mean(axis=0)
-                    if key in pharmit_feats.keys():
-                        if positions not in pharmit_feats[key]:
-                            pharmit_feats[key].append(positions)
-                    else:
-                        pharmit_feats[key]=[positions]
-            except:
-                pass
-    return pharmit_feats
 
 def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
     
@@ -151,17 +103,26 @@ def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
             # get pocket features
             pocket_feat_kind = []
             pocket_feat_coords = []
-            rdmol = rdmolfiles.MolFromPDBFile(rec_path,sanitize=True)
-            obmol = next(pybel.readfile("pdb", rec_path))
             # get feature positions dictionary
-            rec_pharm = get_mol_pharm(rdmol, obmol)
+            rec_pharm = get_mol_pharm(rec_path)
             # include features within cutoff distance from ligand
             for feature, coords in rec_pharm.items():
-                for coord in coords:
-                    distances = cdist([coord], lig_coords)
-                    if np.any(distances < pocket_cutoff):
-                        pocket_feat_coords.append(coord)
-                        pocket_feat_kind.append(ph_type_to_idx[feature])            
+                # coords is a list of arrays each of shape (3,)
+                # we first convert this to a numpy array of shape (n, 3)
+                coords = np.array(coords)
+
+                # compute distance between each receptor functional group and each ligand atom
+                distances = cdist(coords, lig_coords)
+
+                # get a mask of all receptor functional groups which are within the cutoff distance from the ligand
+                mask = np.any(distances <= pocket_cutoff, axis=1)
+
+                # get the coordinates of the receptor functional groups which are within the cutoff distance from the ligand
+                coords = coords[mask]
+                types_arr = np.ones(coords.shape[0], dtype=int) * ph_type_to_idx[feature]
+
+                pocket_feat_coords.append(coords)
+                pocket_feat_kind.append(types_arr)           
 
 
             # get residues which constitute the binding pocket
@@ -192,8 +153,8 @@ def getfeatures(reclig, crossdocked_data_dir: Path, pocket_cutoff: int = 8):
             pocket_anames = np.array([ar[0].name for ar in pocket_atomres])
             pocket_res = np.array([Bio.PDB.Polypeptide.three_to_index(ar[1].resname) for ar in pocket_atomres])
             pocket_rid = np.array([ar[1].id[1] for ar in pocket_atomres])
-            pocket_feat_coords = np.array(pocket_feat_coords)
-            pocket_feat_kind = np.array(pocket_feat_kind)
+            pocket_feat_coords = np.concatenate(pocket_feat_coords, axis=0)
+            pocket_feat_kind = np.concatenate(pocket_feat_kind, axis=0)
             #receptor and features are needed for training
             #glig is included for reference back to original data for debugging
 
