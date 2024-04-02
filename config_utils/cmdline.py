@@ -11,11 +11,13 @@ def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.Argumen
     diff_group = p.add_argument_group('diffusion')
     diff_group.add_argument('--precision', type=float, default=None)
     diff_group.add_argument('--feat_norm_constant', type=float, default=None)
-    diff_group.add_argument('--pf_dist_threshold', type=float, default=None, help='distsance threshold for protein-pharmacophore loss function')
+    diff_group.add_argument('--pf_dist_threshold', type=float, default=None, help='distance threshold for protein-pharmacophore loss function')
 
     dynamics_group = p.add_argument_group('dynamics')
-    dynamics_group.add_argument('--n_convs_dynamics', type=int, default=None, help='number of graph convolutions in the dynamics model')
-    dynamics_group.add_argument('--dynamics_feats', type=int, default=None)
+    dynamics_group.add_argument('--vector_size', type=int, default=None)
+    dynamics_group.add_argument('--n_convs', type=int, default=None, help='number of graph convolutions in the dynamics model')
+    dynamics_group.add_argument('--n_hidden_scalars', type=int, default=None)
+    dynamics_group.add_argument('--dropout', type=float, default=None)
     dynamics_group.add_argument('--h_skip_connections', type=bool, default=None)
     dynamics_group.add_argument('--agg_across_edge_types', type=bool, default=None)
     dynamics_group.add_argument('--dynamics_rec_enc_multiplier', type=int, default=None) 
@@ -39,9 +41,6 @@ def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.Argumen
     p.add_argument('--pf_k', type=int, default=None)
     p.add_argument('--pp_k', type=int, default=None)
 
-    p.add_argument('--dropout', type=float, default=None)
-    p.add_argument('--n_vector_channels', type=int, default=None)
-
     p.add_argument('--max_fake_atom_frac', type=float, default=None)
 
     p.add_argument('--use_tanh', type=str, default=None)
@@ -58,7 +57,7 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
 
     # override config file args with command line args
     args_dict = vars(args)
-    dynamics_key = 'dynamics_gvp'
+    dynamics_key = 'dynamics'
 
     if args.exp_name is not None:
         config['experiment']['name'] = args.exp_name
@@ -113,8 +112,8 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
             args.message_norm = float(args.message_norm)
         config[dynamics_key]['message_norm'] = args.message_norm
     
-    if args.n_convs_dynamics is not None:
-        config['dynamics']['n_layers'] = args.n_convs_dynamics
+    if args.n_convs is not None:
+        config['dynamics']['n_convs'] = args.n_convs
 
     if args.h_skip_connections is not None:
         config['dynamics']['h_skip_connections'] = args.h_skip_connections
@@ -122,8 +121,11 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
     if args.agg_across_edge_types is not None:
         config['dynamics']['agg_across_edge_types'] = args.agg_across_edge_types
 
-    if args.dynamics_feats is not None:
-       config[dynamics_key]['n_hidden_scalars'] = args.dynamics_feats
+    if args.n_hidden_scalars is not None:
+       config[dynamics_key]['n_hidden_scalars'] = args.n_hidden_scalars
+
+    if args.vector_size is not None:
+       config[dynamics_key]['vector_size'] = args.vector_size
 
     if args.pf_hinge_loss_weight is not None:
         config['training']['pf_hinge_loss_weight'] = args.pf_hinge_loss_weight
