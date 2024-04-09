@@ -4,6 +4,12 @@ try:
     from molgrid.openbabel import pybel
 except ImportError:
     from openbabel import pybel
+import rdkit.Chem as Chem
+from Bio.PDB import PDBParser, PDBIO, MMCIFIO
+from Bio.PDB.Polypeptide import is_aa
+from Bio.PDB.PDBIO import Select
+from pathlib import Path
+from scipy.spatial.distance import cdist
 
 # suppress openbabel warnings
 pybel.ob.obErrorLog.StopLogging()
@@ -61,3 +67,40 @@ def get_mol_pharm(pdb_file_path: str):
             except:
                 pass
     return pharmit_feats
+
+class PocketSelector(Select):
+
+    def __init__(self, residues: list):
+        super().__init__()
+        self.residues = residues
+
+    def accept_residue(self, residue):
+        return residue in self.residues
+
+class Unparsable(Exception):
+    pass
+
+def write_pocket_file(rec_file: Path, lig_rdmol: Chem.Mol, output_pocket_file: Path, cutoff: float = 5):
+
+    # parse pdb file
+    pdb_struct = PDBParser(QUIET=True).get_structure('', rec_file)
+
+    # get ligand positions
+    ligand_conformer = lig_rdmol.GetConformer()
+    atom_positions = ligand_conformer.GetPositions()
+
+    # get binding pocket residues
+    pocket_residues = []
+    for residue in pdb_struct[0].get_residues():
+        if not is_aa(residue.get_resname(), standard=True):
+            continue
+        res_coords = np.array([a.get_coord() for a in residue.get_atoms()])
+        is_pocket_residue = cdist(atom_positions, res_coords).min() < cutoff
+        if is_pocket_residue:
+            pocket_residues.append(residue)
+
+    # save just the pocket residues
+    pocket_selector = PocketSelector(pocket_residues)
+    pdb_io = PDBIO()
+    pdb_io.set_structure(pdb_struct)
+    pdb_io.save(str(output_pocket_file), pocket_selector)

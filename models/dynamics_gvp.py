@@ -135,7 +135,7 @@ class PharmRecDynamicsGVP(nn.Module):
 
         with g.local_scope():
 
-            # get initial lig and rec features from graph
+            # get initial pharmacophore and protein features from graph
             pharm_scalars = g.nodes['pharm'].data['h_0']
             prot_scalars = g.nodes['prot'].data['h_0']
 
@@ -146,11 +146,11 @@ class PharmRecDynamicsGVP(nn.Module):
             t_prot = timestep[prot_batch_idx].view(-1, 1)
             prot_scalars = torch.concatenate([prot_scalars, t_prot], dim=1)
 
-            # encode lig/kp scalars into a space of the same dimensionality
+            # encode pharm/prot scalars into a space of the same dimensionality
             pharm_scalars = self.pharm_encoder(pharm_scalars)
             prot_scalars = self.prot_encoder(prot_scalars)
 
-            # set lig/kp features in graph
+            # set pharm/prot features in graph
             g.nodes['pharm'].data['h_0'] = pharm_scalars
             g.nodes['prot'].data['h_0'] = prot_scalars
             g.nodes['pharm'].data['v_0'] = torch.zeros((pharm_scalars.shape[0], self.vector_size, 3),

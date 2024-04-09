@@ -50,12 +50,13 @@ class CrossdockedDataModule(pl.LightningDataModule):
         self.val_split_idxs = val_split_idxs
         
 
-    def setup(self, stage: str):
+    def setup(self, stage: str='fit'):
 
         if stage == 'fit':
             self.train_dataset = ProteinPharmacophoreDataset(name='train', split_idxs=self.train_split_idxs, **self.dataset_config)
             self.val_dataset = ProteinPharmacophoreDataset(name='val', split_idxs=self.val_split_idxs, **self.dataset_config)
-
+        if stage == 'test':
+            self.val_dataset = ProteinPharmacophoreDataset(name='val', split_idxs=self.val_split_idxs, **self.dataset_config)
     
     def train_dataloader(self):
         return get_dataloader(self.train_dataset, self.batch_size, self.num_workers)

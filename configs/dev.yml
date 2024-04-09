@@ -5,7 +5,7 @@ training:
   num_workers: 0
   validation_splits: [2]
   trainer_args:
-    max_epochs: 3
+    max_epochs: 10
     accelerator: gpu
     devices: 1
     accumulate_grad_batches: 1
@@ -18,17 +18,24 @@ training:
 
 lr_scheduler:
   # to turn off warmup and restarts, set both warmup_length and restart_interval to 0
-  base_lr: 1.0e-4
+  base_lr: 1.0e-3
   warmup_length: 0
   restart_interval: 0 # 0 means no restart
   restart_type: 'linear'
   weight_decay: 1.0e-12
+  monitor: 'val total loss'
+  reducelronplateau:
+    mode: 'min'
+    factor: 0.1
+    patience: 20
+    min_lr: 1e-5
+    verbose: True
 
 checkpointing:
   save_last: True
   save_top_k: 3
   # monitor: 'val_total_loss'
-  monitor: 'total loss'
+  monitor: 'val total loss'
   every_n_epochs: 1
 
 wandb:
@@ -50,17 +57,21 @@ dataset:
   min_pharm_centers: 3
   dataset_size: 1000 # used only for debugging
   subsample_pharms: True
+  subsample_min: 4
+  subsample_max: 8
   
   
 graph:
   graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
-
 
 diffusion:
   n_timesteps: 1000
   precision: 1.0e-5
   pharm_feat_norm_constant: 1
   rl_dist_threshold: 0
+  endpoint_param_feat: False
+  endpoint_param_coord: False
+  weighted_loss: False
 
 dynamics:
   vector_size: 16

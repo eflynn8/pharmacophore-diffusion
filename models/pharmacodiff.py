@@ -22,12 +22,15 @@ import pytorch_lightning as pl
 
 class PharmacophoreDiff(pl.LightningModule):
 
-    def __init__(self, pharm_nf, rec_nf, processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1, **kwargs):
+    def __init__(self, pharm_nf, rec_nf, processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1, endpoint_param_feat: bool = False, endpoint_param_coord: bool = False, weighted_loss: bool = False, **kwargs):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
         self.n_timesteps = n_timesteps
         self.pharm_feat_norm_constant = pharm_feat_norm_constant
+        self.endpoint_param_feat = endpoint_param_feat
+        self.endpoint_param_coord = endpoint_param_coord
+        self.weighted_loss = weighted_loss
 
         #TODO implement obtaining the pharmacophore size distribution from the dataset
         self.pharm_size_dist = PharmSizeDistribution(processed_data_dir)
@@ -71,7 +74,7 @@ class PharmacophoreDiff(pl.LightningModule):
         return protpharm_graphs
     
     def noised_representation(self, g: dgl.DGLHeteroGraph, pharm_batch_idx: torch.Tensor, prot_batch_idx: torch.Tensor,
-                              eps: Dict[str, torch.Tensor], gamma_t: torch.Tensor):
+                              eps: Dict[str, torch.Tensor], gamma_t: torch.Tensor, return_com: bool = False ):
         
 
         alpha_t = self.alpha(gamma_t)[pharm_batch_idx][:, None]
@@ -80,11 +83,14 @@ class PharmacophoreDiff(pl.LightningModule):
         g.nodes['pharm'].data['x_0'] = alpha_t*g.nodes['pharm'].data['x_0'] + sigma_t*eps['x']
         g.nodes['pharm'].data['h_0'] = alpha_t*g.nodes['pharm'].data['h_0'] + sigma_t*eps['h']
         
-
-        # remove ligand COM from the system
+        sampled_com = dgl.readout_nodes(g, feat='x_0', ntype='pharm', op='mean')
+        # remove pharmacophore COM from the system
         g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
         
-        return g
+        if return_com:
+            return g, sampled_com
+        else:
+            return g
     
     def denoised_representation(self, g: dgl.DGLHeteroGraph, pharm_batch_idx: torch.Tensor, prot_batch_idx: torch.Tensor,
                               eps_x_pred: torch.Tensor, eps_h_pred: torch.Tensor, gamma_t: torch.Tensor):
@@ -114,10 +120,10 @@ class PharmacophoreDiff(pl.LightningModule):
         log_alpha2_s = fn.logsigmoid(-gamma_s)
         log_alpha2_t_given_s = log_alpha2_t - log_alpha2_s
         alpha_t_given_s = torch.exp(0.5 * log_alpha2_t_given_s)
-
+        alpha_s= torch.exp(0.5 * log_alpha2_s)
         sigma_t_given_s = torch.sqrt(sigma2_t_given_s)
 
-        return sigma2_t_given_s, sigma_t_given_s, alpha_t_given_s
+        return sigma2_t_given_s, sigma_t_given_s, alpha_t_given_s, alpha_s
     
     # def encode_receptors(self, g: dgl.DGLHeteroGraph):
     #     #it seems all I need to do for now is add vector features
@@ -133,9 +139,10 @@ class PharmacophoreDiff(pl.LightningModule):
 
     #     return g
     
-    def forward(self, g: dgl.DGLHeteroGraph):
+    def forward(self, g: dgl.DGLHeteroGraph, phase: str='train'):
 
         losses = {}
+        metrics ={}
         
         #normalize values
         g = self.normalize(g)
@@ -148,8 +155,11 @@ class PharmacophoreDiff(pl.LightningModule):
 
         batch_idxs = get_batch_idxs(g)
         
-        # remove pharmacophore COM from receptor/ligand complex
+        # remove pharmacophore COM from protein-pharmacophore graph
         g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
+
+        # for metrics and endpoint predictions, copy clean graph
+        g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
 
         # sample timepoints for each item in the batch
         t = torch.randint(0, self.n_timesteps, size=(batch_size,), device=device).float() # timesteps
@@ -163,48 +173,282 @@ class PharmacophoreDiff(pl.LightningModule):
 
         # construct noisy versions of the ligand
         gamma_t = self.gamma(t).to(device=device)
-        g = self.noised_representation(g, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t)
+        g, sampled_com = self.noised_representation(g, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t,return_com=True)
 
         # predict the noise that was added
-        #TODO predict feature class instead of noise, cross entropy loss on feature type
-        eps_h_pred, eps_x_pred = self.dynamics(g, t, batch_idxs)
+        h_dyn, x_dyn = self.dynamics(g, t, batch_idxs)
 
-        x_loss = ((eps['x'] - eps_x_pred)).square().sum()
-        h_loss = (eps['h'] - eps_h_pred).square().sum()
+        alpha_t = self.alpha(gamma_t)[batch_idxs['pharm']][:, None]
+        sigma_t = self.sigma(gamma_t)[batch_idxs['pharm']][:, None]
 
-        losses['pos'] = x_loss / eps['x'].numel()
-        losses['feat'] = h_loss / eps['h'].numel()
+        if self.endpoint_param_feat:
+            h_pred = h_dyn
+            h_loss=fn.cross_entropy(h_pred, g_copy.nodes['pharm'].data['h_0'].argmax(dim=1),reduction='none')
+        else:
+            h_loss = (eps['h'] - h_dyn).square().sum(dim=1)
+            h_pred = (g.nodes['pharm'].data['h_0'] - sigma_t*h_dyn)/alpha_t
+        if self.endpoint_param_coord:
+            #get prediction back to the original frame of reference
+            x_pred = x_dyn + sampled_com[batch_idxs['pharm']]/alpha_t
+            x_loss = ((x_pred - g_copy.nodes['pharm'].data['x_0'])).square().sum(dim=1)    
+        else:
+            x_loss = ((eps['x'] - x_dyn)).square().sum(dim=1)
+            #get prediction on original frame of reference
+            x_pred = (g.nodes['pharm'].data['x_0'] - sigma_t*x_dyn + sampled_com[batch_idxs['pharm']])/alpha_t 
+        
+        weight_metric=1 - t[batch_idxs['pharm']]
+        weight_loss=torch.ones_like(t)[batch_idxs['pharm']]
+        if self.weighted_loss:
+            weight_loss=weight_metric
 
-        return losses
+        h_loss = (h_loss * weight_loss).sum()
+        x_loss = (x_loss * weight_loss).sum()
+
+
+        #TODO kl divergence loss
+        losses[phase + ' pos loss'] = x_loss / eps['x'].numel()
+        losses[phase + ' feat loss'] = h_loss / eps['h'].numel()
+
+        with torch.no_grad():
+            metrics[phase + ' position error'] = (x_pred - g_copy.nodes['pharm'].data['x_0']).square().sum(dim=1).mean()
+            metrics[phase + ' weighted position error'] = (weight_metric*((x_pred - g_copy.nodes['pharm'].data['x_0'])**2).sum(dim=1)).mean()
+            h_pred=h_pred.argmax(dim=1)
+            metrics[phase + ' accuracy'] = (h_pred == g_copy.nodes['pharm'].data['h_0'].argmax(dim=1)).float().mean()
+            metrics[phase + ' weighted accuracy'] = (weight_metric*(h_pred == g_copy.nodes['pharm'].data['h_0'].argmax(dim=1)).float()).mean()
+            # if 'prot_ph' in g.ntypes:
+            #     prot_ph_batch_idx = batch_idxs['prot_ph']
+            #     print(g_copy.nodes['prot_ph'].data['x_0'].shape,g_copy.nodes['prot_ph'].data['h_0'].shape)
+        
+        return losses,metrics
     
     def num_training_batches(self):
         return len(self.trainer.train_dataloader)
     
     def configure_optimizers(self):
-        print("LR Scheduler Config: ", self.lr_scheduler_config)
         optimizer = optim.Adam(self.parameters(), 
                                lr=self.lr_scheduler_config['base_lr'],
                                weight_decay=self.lr_scheduler_config['weight_decay']
         )
+        scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
+
         # self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
-        return optimizer
+        return {'optimizer': optimizer, 'lr_scheduler': {"scheduler":scheduler,"monitor": self.lr_scheduler_config['monitor']}}
 
     def training_step(self, batch, batch_idx):
         protpharm_graphs = batch
-        current_epoch = self.current_epoch + batch_idx / self.num_training_batches()
+        phase='train'
+        #current_epoch = self.current_epoch + batch_idx / self.num_training_batches()
         # self.lr_scheduler.step_lr(current_epoch, self.optimizers())
-        loss_dict = self.forward(protpharm_graphs)
-        loss_dict['total loss'] = torch.sum(torch.stack(list(loss_dict.values()), dim=0))
+        loss_dict,metrics_dict = self.forward(protpharm_graphs,phase=phase)
+        loss_dict[phase+' total loss'] = torch.sum(torch.stack(list(loss_dict.values()), dim=0))
+        metrics_dict[phase+' total error']= metrics_dict[phase+' position error'] + 1 - metrics_dict[phase+' accuracy']
+        metrics_dict[phase+' weighted total error']= metrics_dict[phase+' weighted position error'] + 1 - metrics_dict[phase+' weighted accuracy']
         self.log_dict(loss_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
-        return loss_dict['total loss']
+        self.log_dict(metrics_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
+        return loss_dict[phase+' total loss']
     
     def validation_step(self, batch, batch_idx):
         protpharm_graphs = batch
-        loss_dict = self.forward(protpharm_graphs)
-        loss_dict['total loss'] = sum(list(loss_dict.values()))
+        phase='val'
+        loss_dict, metrics_dict = self.forward(protpharm_graphs,phase=phase)
+        loss_dict[phase+' total loss'] = sum(list(loss_dict.values()))
+        metrics_dict[phase+' total error']= metrics_dict[phase+' position error'] + 1 - metrics_dict[phase+' accuracy']
+        metrics_dict[phase+' weighted total error']= metrics_dict[phase+' weighted position error'] + 1 - metrics_dict[phase+' weighted accuracy']
         self.log_dict(loss_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=batch.batch_size)
-        return loss_dict['total loss']
+        self.log_dict(metrics_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=batch.batch_size)
+        return loss_dict[phase+' total loss']
     
+    def get_pos_feat_for_visual(self,g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor):
+        #make a copy of g
+        g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
+
+        #unnormalize the features
+        g_frame = self.unnormalize(g_frame)
+
+        #move features back to initial frame of reference
+        prot_com = dgl.readout_nodes(g_frame, feat='x_0', ntype='prot', op='mean')
+        delta=init_prot_com-prot_com
+        g_frame.nodes['pharm'].data['x_0'] = g_frame.nodes['pharm'].data['x_0']+delta
+
+        g_frame=g_frame.to('cpu')
+        pharm_pos, pharm_feat =[],[]
+        for g_i in dgl.unbatch(g_frame):
+            pharm_pos.append(g_i.nodes['pharm'].data['x_0'])
+            pharm_feat.append(g_i.nodes['pharm'].data['h_0'])
+        return pharm_pos, pharm_feat
+    
+    def sample_p_zs_given_zt(self, s: torch.Tensor, t: torch.Tensor, g: dgl.heterograph, batch_idxs: Dict[str, torch.Tensor]):
+
+        device=g.device
+        pharm_batch_idx=batch_idxs['pharm']
+        prot_batch_idx=batch_idxs['prot']
+
+        # compute the alpha and sigma terms that define p(z_s | z_t)
+        gamma_s = self.gamma(s)
+        gamma_t = self.gamma(t)
+
+        sigma2_t_given_s, sigma_t_given_s, alpha_t_given_s,alpha_s = self.sigma_and_alpha_t_given_s(gamma_t, gamma_s)
+        sigma_s = self.sigma(gamma_s)
+        sigma_t = self.sigma(gamma_t)
+
+        # predict the noise that we should remove from this example, epsilon
+        pred_h, pred_x = self.dynamics(g, t, batch_idxs)
+
+        var_terms = sigma2_t_given_s / alpha_t_given_s / sigma_t
+
+        #expand distribution parameters by batch assignment for every pharmacophore feature
+        alpha_t_given_s = alpha_t_given_s[pharm_batch_idx].view(-1, 1)
+        var_terms = var_terms[pharm_batch_idx].view(-1, 1)
+
+        #TODO: check this math lol
+        #compute the mean (mu) for positions/features of the distribution p(z_s | z_t)
+        if self.endpoint_param_coord:
+            mu_pos = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['x_0'][pharm_batch_idx] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_x
+        else:
+            mu_pos = g.nodes['pharm'].data['x_0'][pharm_batch_idx] /alpha_t_given_s - var_terms*pred_x
+        if self.endpoint_param_feat:
+            mu_feat = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['h_0'][pharm_batch_idx] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_h
+        else:
+            mu_feat = g.nodes['pharm'].data['h_0'][pharm_batch_idx] /alpha_t_given_s - var_terms*pred_h
+
+        #compute sigma for p(zs|zt)
+        sigma = sigma_t_given_s * sigma_s/sigma_t
+        sigma = sigma[pharm_batch_idx].view(-1, 1)
+
+        # sample zs given the mu and sigma we just computed
+        pos_noise = torch.randn(g.nodes['pharm'].data['x_0'].shape, device=device)
+        feat_noise = torch.randn(g.nodes['pharm'].data['h_0'].shape, device=device)
+        g.nodes['pharm'].data['x_0'] = mu_pos + sigma*pos_noise
+        g.nodes['pharm'].data['h_0'] = mu_feat + sigma*feat_noise
+
+        #remove pharmacophore COM from system
+        g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+
+        return g
+
+
+    
+    @torch.no_grad()
+    def sample_given_receptor(self, g:dgl.DGLHeteroGraph, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool = False):
+        #method to sample from one receptor with batch_size being the number of pharmacophores generated for the receptor and n_pharm_feats 
+        #being the number of pharmacophore features
+        
+        device = g.device
+        batch_size = g.batch_size
+
+        #get initial protein com 
+        init_prot_com = dgl.readout_nodes(g, feat='x_0', ntype='prot', op='mean')
+
+        #get batch indices of every node
+        batch_idxs = get_batch_idxs(g)
+
+        #Use the receptor pocket COM if pharmacophore COM not provided
+        if init_pharm_com is None:
+            init_pharm_com=init_prot_com
+
+        #move the protein to the pharmacophore com
+        g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]
+
+        #sample initial positions/features of pharmacophore features
+        for feat in ['x_0', 'h_0']:
+            g.nodes['pharm'].data[feat] = torch.randn(g.nodes['pharm'].data[feat].shape, device=device)
+
+        #recenter with newly generated features:
+        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
+
+        if visualize_trajectory:
+
+            pharm_pos_frames,pharm_feat_frames = [],[] 
+            pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g,init_prot_com)
+            pharm_pos_frames.append(pharm_pos)
+            pharm_feat_frames.append(pharm_feats)
+
+        # Iteratively sample p(z_s | z_t) for t = 1, ..., T, with s = t - 1.
+        for s in reversed(range(self.n_timesteps)):
+            s_arr=torch.full(size=(batch_size,),fill_value=s,device=device)
+            t_arr=s_arr+1
+            s_arr=s_arr.float()/self.n_timesteps
+            t_arr=t_arr.float()/self.n_timesteps
+
+            g=self.sample_p_zs_given_zt(s_arr, t_arr, g, batch_idxs)
+
+            if visualize_trajectory:
+                pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g,init_prot_com)
+                pharm_pos_frames.append(pharm_pos)
+                pharm_feat_frames.append(pharm_feats)
+            
+        g=self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein')
+
+        for n_type in ['pharm', 'prot']:
+            g.nodes[n_type].data['x_0'] = g.nodes[n_type].data['x_0'] + init_prot_com[batch_idxs[n_type]]
+
+        g=self.unnormalize(g)
+
+        if visualize_trajectory:
+
+            pharm_pos_frames = list(zip(*pharm_pos_frames))
+            pharm_feat_frames = list(zip(*pharm_feat_frames))
+
+            return pharm_pos_frames, pharm_feat_frames
+
+        pharm_pos=[]
+        pharm_feat=[]
+
+        g=g.to('cpu')
+        for g_i in dgl.unbatch(g):
+            pharm_pos.append([g_i.nodes['pharm'].data['x_0']])
+            pharm_feat.append([g_i.nodes['pharm'].data['h_0']])
+
+        return pharm_pos, pharm_feat
+    
+    def sample(self,  ref_graphs: List[dgl.DGLHeteroGraph], n_pharm_feats: List[List[int]], diff_batch_size: int = 32, use_ref_pharm_com: bool = False, visualize_trajectory: bool=False):
+
+        device = ref_graphs[0].device
+        n_receptors = len(ref_graphs)
+
+        ref_graphs_batched = dgl.batch(ref_graphs)
+        graphs=[]
+
+        for rec_idx, ref_graph in enumerate(dgl.unbatch(ref_graphs_batched)):
+            n_pharm_feats_rec = n_pharm_feats[rec_idx]
+            g_copies=copy_graph(ref_graph,n_copies=len(n_pharm_feats_rec),pharm_feats_per_copy=torch.tensor(n_pharm_feats_rec))
+            graphs.extend(g_copies)
+        
+        #proceed to batched sampling
+
+        n_complexes=len(graphs)
+        n_complexes_sampled=0
+
+        pharm_pos, pharm_feat=[],[]
+
+        for batch_idx in range(ceil(n_complexes/diff_batch_size)):
+
+            #number of complexes present in batch
+            n_samples_batch=min(diff_batch_size,n_complexes-n_complexes_sampled)
+            start_idx=batch_idx*diff_batch_size
+            end_idx=start_idx+n_samples_batch
+            batch_graphs=dgl.batch(graphs[start_idx:end_idx])
+            if use_ref_pharm_com:
+                init_pharm_com=dgl.readout_nodes(ref_graphs_batched,feat='x_0',ntype='pharm',op='mean')
+            else:
+                init_pharm_com=None
+            
+            batch_pharm_pos, batch_pharm_feat = self.sample_given_receptor(batch_graphs, init_pharm_com=init_pharm_com, visualize_trajectory=visualize_trajectory)
+            pharm_pos.extend(batch_pharm_pos)
+            pharm_feat.extend(batch_pharm_feat)
+
+            n_complexes_sampled+=n_samples_batch
+
+        samples=[]
+        end_idx=0
+        for rec_idx in range(n_receptors):
+            n_pharmacophores=len(n_pharm_feats[rec_idx])
+            start_idx=end_idx
+            end_idx=start_idx+n_pharmacophores
+            samples.append({'positions': pharm_pos[start_idx:end_idx],'features': pharm_feat[start_idx:end_idx]})
+        
+        return samples
+
 
 # noise schedules are taken from DiffSBDD: https://github.com/arneschneuing/DiffSBDD
 def cosine_beta_schedule(timesteps, s=0.008, raise_to_power: float = 1):
