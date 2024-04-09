@@ -25,7 +25,7 @@ lr_scheduler:
   weight_decay: 1.0e-12
   monitor: 'val total loss'
   interval: 'step'
-  frequency: 1
+  frequency: 100 #this needs to be greater than (val_loss_ineterval * number of train iteration per epoch)
   reducelronplateau:
     mode: 'min'
     factor: 0.1

@@ -258,6 +258,7 @@ class PharmacophoreDiff(pl.LightningModule):
         self.log_dict(metrics_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=batch.batch_size)
         return loss_dict[phase+' total loss']
     
+    
     def get_pos_feat_for_visual(self,g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor):
         #make a copy of g
         g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
