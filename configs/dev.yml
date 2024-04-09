@@ -24,6 +24,8 @@ lr_scheduler:
   restart_type: 'linear'
   weight_decay: 1.0e-12
   monitor: 'val total loss'
+  interval: 'step'
+  frequency: 1
   reducelronplateau:
     mode: 'min'
     factor: 0.1
