@@ -20,7 +20,10 @@ def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.Argumen
     dynamics_group.add_argument('--dropout', type=float, default=None)
     dynamics_group.add_argument('--h_skip_connections', type=bool, default=None)
     dynamics_group.add_argument('--agg_across_edge_types', type=bool, default=None)
-    dynamics_group.add_argument('--dynamics_rec_enc_multiplier', type=int, default=None) 
+    dynamics_group.add_argument('--dynamics_rec_enc_multiplier', type=int, default=None)
+    dynamics_group.add_argument('--n_message_gvps', type=int, default=None)
+    dynamics_group.add_argument('--n_update_gvps', type=int, default=None)
+    dynamics_group.add_argument('--n_noise_gvps', type=int, default=None)
 
     training_group = p.add_argument_group('training')
     training_group.add_argument('--pf_hinge_loss_weight', type=float, default=None, help='weight applied to protein-pharmacophore hinge loss')
@@ -126,6 +129,15 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
 
     if args.vector_size is not None:
        config[dynamics_key]['vector_size'] = args.vector_size
+    
+    if args.n_message_gvps is not None:
+        config['dynamics']['n_message_gvps'] = args.n_message_gvps
+    
+    if args.n_update_gvps is not None:
+        config['dynamics']['n_update_gvps'] = args.n_update_gvps
+    
+    if args.n_noise_gvps is not None:
+        config['dynamics']['n_noise_gvps'] = args.n_noise_gvps
 
     if args.pf_hinge_loss_weight is not None:
         config['training']['pf_hinge_loss_weight'] = args.pf_hinge_loss_weight
