@@ -243,8 +243,12 @@ class PharmacophoreDiff(pl.LightningModule):
         loss_dict[phase+' total loss'] = torch.sum(torch.stack(list(loss_dict.values()), dim=0))
         metrics_dict[phase+' total error']= metrics_dict[phase+' position error'] + 1 - metrics_dict[phase+' accuracy']
         metrics_dict[phase+' weighted total error']= metrics_dict[phase+' weighted position error'] + 1 - metrics_dict[phase+' weighted accuracy']
+        try:
+            metrics_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
+        except:
+            metrics_dict['lr'] =self.optimizers().param_groups[0]['lr']
         self.log_dict(loss_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
-        self.log_dict(metrics_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
+        self.log_dict(metrics_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
         return loss_dict[phase+' total loss']
     
     def validation_step(self, batch, batch_idx):

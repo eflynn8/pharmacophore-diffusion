@@ -30,7 +30,7 @@ lr_scheduler:
     mode: 'min'
     factor: 0.1
     patience: 20
-    min_lr: 1e-5
+    min_lr: 1.0e-5
     verbose: True
 
 checkpointing:
