@@ -214,8 +214,9 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
     }
 
     # compute prot atom -> prot atom edges
-    pp_edges = radius_graph(prot_atom_positions, r=cutoffs['pp'], max_num_neighbors=100)
-    graph_data[('prot', 'pp', 'prot')] = (pp_edges[0].cpu(), pp_edges[1].cpu())
+    if cutoffs['pp'] > 0:
+        pp_edges = radius_graph(prot_atom_positions, r=cutoffs['pp'], max_num_neighbors=100)
+        graph_data[('prot', 'pp', 'prot')] = (pp_edges[0].cpu(), pp_edges[1].cpu())
 
     num_nodes_dict = {
         'prot': n_prot_atoms,'pharm': n_pharm_atoms
