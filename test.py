@@ -1,0 +1,184 @@
+import argparse
+import time
+import yaml
+from pathlib import Path
+import torch
+from rdkit import Chem
+import shutil
+import pickle
+from tqdm import trange
+import dgl
+from models.pharmacodiff import PharmacophoreDiff
+
+from config_utils.load_from_config import model_from_config, data_module_from_config
+from dataset.receptor_utils import write_pocket_file
+from utils import write_pharmacophore_file, copy_graph
+
+def parse_arguments():
+    p = argparse.ArgumentParser()
+    
+    p.add_argument('--model_file', type=str,required=True,help='Path to file containing model weights, required.')
+    p.add_argument('--run_dir', type=str, default=None, help='directory of output from a training run, should contain the config file of the run. If not provided, parent directory of model_file will be used.')
+    p.add_argument('--samples_per_pocket', type=int, default=1, help="number of samples generated per pocket")
+    p.add_argument('--max_batch_size', type=int, default=128, help='maximum feasible batch size due to memory constraints')
+    p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--output_dir', type=str, default='test_results/')
+    p.add_argument('--max_tries', type=int, default=1, help='maximum number of batches to sample per pocket')
+    p.add_argument('--dataset_size', type=int, default=None, help='truncate test dataset')
+    p.add_argument('--dataset_idx', type=int, default=None)
+    p.add_argument('--split', type=str, default='val')
+    p.add_argument('--use_ref_pharm_com', action='store_true',help="Initialize each pharmacophore's position at the reference pharmacophore's center of mass" )
+    p.add_argument('--visualize_trajectory', action='store_true',help="Visualize trajectories of generated pharmacophores" )
+    
+    args = p.parse_args()
+
+
+    
+    return args
+
+def main():
+
+    args = parse_arguments()
+
+    #get output dir path and create the directory
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(exist_ok=True) 
+    pharm_dir = output_dir / 'sampled_pharmacophores'
+    pharm_dir.mkdir(exist_ok=True)
+
+    # get filepath of config file within model_dir
+    model_file = Path(args.model_file)
+    if args.run_dir is not None:
+        run_dir = Path(args.run_dir)
+    else:
+        run_dir = model_file.parent
+
+    # get config file
+    #be robust to yml vs yaml lol
+    config_file = run_dir / 'config.yaml'
+    if not config_file.exists():
+        config_file = run_dir / 'config.yml'
+        if not config_file.exists():
+            raise FileNotFoundError(f'config file not found in {run_dir}')
+
+    # load model configuration
+    with open(config_file, 'r') as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+
+    # determine device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f'{device=}', flush=True)
+
+    # set random seeds
+    torch.manual_seed(args.seed)
+
+    # create test dataset object
+    test_data_module = data_module_from_config(config)
+    test_data_module.setup('test')
+    test_dataset = test_data_module.val_dataset
+
+    #create diffusion model
+    model = PharmacophoreDiff.load_from_checkpoint(args.model_file).to(device)
+    model.eval()
+
+    pocket_sampling_times=[]
+
+    if args.dataset_idx is None:
+
+        if args.dataset_size is not None:
+            dataset_size = args.dataset_size
+        else:
+            dataset_size = len(test_dataset)
+        dataset_iterator = trange(dataset_size)
+    else:
+        dataset_iterator = trange(args.dataset_idx, args.dataset_idx+1)
+
+    for dataset_idx in dataset_iterator:
+
+        pocket_sample_start = time.time()
+        #get receptor graph and reference pharmacophore positions/features from test set
+
+        ref_graph = test_dataset[dataset_idx]
+        raw_data_dir, ref_prot_file, ref_lig_rdmol = test_dataset.get_files(dataset_idx)
+        raw_data_dir = Path(raw_data_dir)
+        ref_prot_file = raw_data_dir / ref_prot_file
+
+        ref_graph = ref_graph.to(device)
+
+        if args.use_ref_pharm_com:
+            ref_init_pharm_com = dgl.readout_nodes(ref_graph, ntype='pharm', feat='x_0', op='mean')
+            assert ref_init_pharm_com.shape == (1,3)
+        else:
+            ref_init_pharm_com = None
+
+        pocket_raw_pharmacophores = []
+
+        while True:
+            n_pharmacophores_needed = args.samples_per_pocket - len(pocket_raw_pharmacophores)
+            batch_size = min(n_pharmacophores_needed, args.max_batch_size)
+
+            #collect just the batch_size graphs and init_pharm_coms that we need
+            g_batch = copy_graph(ref_graph, batch_size)
+            g_batch = dgl.batch(g_batch)
+
+            if args.use_ref_pharm_com:
+                init_pharm_com = ref_init_pharm_com.repeat(batch_size,1)
+            else:
+                init_pharm_com = None
+
+            #sample pharmacophore feats positions/features
+            with g_batch.local_scope():
+                batch_pharm_pos,batch_pharm_feat = model.sample_given_receptor(g_batch, init_pharm_com=init_pharm_com,visualize_trajectory=args.visualize_trajectory)
+
+            for pharm_idx, (pharm_pos_i,pharm_feat_i) in enumerate(zip(batch_pharm_pos,batch_pharm_feat)):
+                
+                pharm_coords_list,pharm_feats_list=[],[]
+                #convert pharm feats features to feature types
+                for coord_i,feat_i in zip(pharm_pos_i,pharm_feat_i):
+                    pharm_feats_list.append(torch.argmax(feat_i, dim=1).tolist())
+                    pharm_coords_list.append(coord_i)
+                #append to pocket_raw_pharmacophores
+                pocket_raw_pharmacophores.append((pharm_coords_list,pharm_feats_list))
+
+            #break out of loop when we have enough pharmacophores
+            if len(pocket_raw_pharmacophores) >= args.samples_per_pocket:
+                break
+        
+        pocket_sample_time = time.time() - pocket_sample_start
+        pocket_sampling_times.append(pocket_sample_time)
+
+        pocket_dir = pharm_dir / f'pocket_{dataset_idx}'
+        pocket_dir.mkdir(exist_ok=True)
+
+        # save pocket sample time
+        with open(pocket_dir / 'sample_time.txt', 'w') as f:
+            f.write(f'{pocket_sample_time:.2f}')
+        with open(pocket_dir / 'sample_time.pkl', 'wb') as f:
+            pickle.dump(pocket_sampling_times, f)
+
+        #print the sampling time
+        print(f'Pocket {dataset_idx} sampling time: {pocket_sample_time:.2f} seconds')
+
+        #print the sampling time per pharmacophore
+        print(f'Pocket {dataset_idx} sampling time per pharmacophore: {pocket_sample_time/len(pocket_raw_pharmacophores):.2f} seconds')
+
+        pocket_file = pocket_dir / 'pocket.pdb'
+
+        write_pocket_file(ref_prot_file,ref_lig_rdmol, pocket_file,cutoff=config['dataset']['pocket_cutoff'])
+
+        #save reference files
+        ref_files_dir=pocket_dir / 'reference_files'
+        ref_files_dir.mkdir(exist_ok=True)
+        shutil.copy(ref_prot_file, ref_files_dir / ref_prot_file.name)
+        sdfwriter = Chem.SDWriter(ref_files_dir / 'ligand.sdf')            
+        sdfwriter.write(ref_lig_rdmol,confId=0)
+
+
+        #write out pharmacophores
+        for pharm_idx, (pharm_pos, pharm_feats) in enumerate(pocket_raw_pharmacophores):
+            pharm_file = pocket_dir / f'pharm_{pharm_idx}.xyz'
+            write_pharmacophore_file(pharm_pos, pharm_feats, pharm_file)
+
+if __name__ == '__main__':
+    main()
+
