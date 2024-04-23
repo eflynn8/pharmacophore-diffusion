@@ -3,15 +3,16 @@ from constants import ph_idx_to_type
 
 
 def compute_complementarity(pharm_feat, pharm_pos, prot_ph_feat, prot_ph_pos, cutoff=8.0):
+    #different cutoffs for diff interactions see rishal code
     #returns fraction of pharmacophore features that are close to a complementary feature in the binding pocket
     
     compatible_types = {
-        'Aromatic': ['Aromatic', 'Hydrophobic', 'HydrogenAcceptor'],
+        'Aromatic': ['Aromatic', 'PositiveIon'],
         'HydrogenDonor': ['HydrogenAcceptor'],
         'HydrogenAcceptor': ['HydrogenDonor', 'Aromatic'],
-        'PositiveIon': ['NegativeIon'],
+        'PositiveIon': ['NegativeIon', 'Aromatic'],
         'NegativeIon': ['PositiveIon'],
-        'Hydrophobic': ['Aromatic', 'Hydrophobic']
+        'Hydrophobic': ['Hydrophobic']
     }
     # distances between pharmacophore and receptor features
     distances = torch.cdist(pharm_pos, prot_ph_pos)
