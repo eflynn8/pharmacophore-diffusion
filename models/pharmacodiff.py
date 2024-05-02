@@ -53,7 +53,7 @@ class PharmacophoreDiff(pl.LightningModule):
         protpharm_graphs.nodes['pharm'].data['h_0'] = protpharm_graphs.nodes['pharm'].data['h_0'] * self.pharm_feat_norm_constant
         return protpharm_graphs
     
-    def remove_com(self, protpharm_graphs, pharm_batch_idx, prot_batch_idx, com: str = None):
+    def remove_com(self, protpharm_graphs, pharm_batch_idx, prot_batch_idx, com: str = None, pharm_feat='x_t'):
         """Remove center of mass from ligand atom positions and receptor keypoint positions.
 
         This method can remove either the ligand COM, receptor keypoint COM or the complex COM.
@@ -62,14 +62,16 @@ class PharmacophoreDiff(pl.LightningModule):
             raise NotImplementedError('removing COM of receptor/ligand complex not implemented')
         elif com == 'pharmacophore':
             ntype = 'pharm'
+            com_feat = pharm_feat
         elif com == 'protein':
             ntype = 'prot'
+            com_feat = 'x_0'
         else:
             raise ValueError(f'invalid value for com: {com=}')
         
-        com = dgl.readout_nodes(protpharm_graphs, feat='x_0', ntype=ntype, op='mean')
+        com = dgl.readout_nodes(protpharm_graphs, feat=com_feat, ntype=ntype, op='mean')
 
-        protpharm_graphs.nodes['pharm'].data['x_0'] = protpharm_graphs.nodes['pharm'].data['x_0'] - com[pharm_batch_idx]
+        protpharm_graphs.nodes['pharm'].data[pharm_feat] = protpharm_graphs.nodes['pharm'].data[pharm_feat] - com[pharm_batch_idx]
         protpharm_graphs.nodes['prot'].data['x_0'] = protpharm_graphs.nodes['prot'].data['x_0'] - com[prot_batch_idx]
         return protpharm_graphs
     
@@ -80,14 +82,15 @@ class PharmacophoreDiff(pl.LightningModule):
         alpha_t = self.alpha(gamma_t)[pharm_batch_idx][:, None]
         sigma_t = self.sigma(gamma_t)[pharm_batch_idx][:, None]
 
-        g.nodes['pharm'].data['x_0'] = alpha_t*g.nodes['pharm'].data['x_0'] + sigma_t*eps['x']
-        g.nodes['pharm'].data['h_0'] = alpha_t*g.nodes['pharm'].data['h_0'] + sigma_t*eps['h']
+        g.nodes['pharm'].data['x_t'] = alpha_t*g.nodes['pharm'].data['x_0'] + sigma_t*eps['x']
+        g.nodes['pharm'].data['h_t'] = alpha_t*g.nodes['pharm'].data['h_0'] + sigma_t*eps['h']
         
-        sampled_com = dgl.readout_nodes(g, feat='x_0', ntype='pharm', op='mean')
+        # sampled_com = dgl.readout_nodes(g, feat='x_0', ntype='pharm', op='mean')
         # remove pharmacophore COM from the system
-        g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+        # g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
         
         if return_com:
+            raise NotImplementedError('i dont think we need to do this so im making it an error for now')
             return g, sampled_com
         else:
             return g
@@ -156,10 +159,7 @@ class PharmacophoreDiff(pl.LightningModule):
         batch_idxs = get_batch_idxs(g)
         
         # remove pharmacophore COM from protein-pharmacophore graph
-        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
-
-        # for metrics and endpoint predictions, copy clean graph
-        g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
+        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
         # sample timepoints for each item in the batch
         t = torch.randint(0, self.n_timesteps, size=(batch_size,), device=device).float() # timesteps
@@ -173,7 +173,7 @@ class PharmacophoreDiff(pl.LightningModule):
 
         # construct noisy versions of the ligand
         gamma_t = self.gamma(t).to(device=device)
-        g, sampled_com = self.noised_representation(g, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t,return_com=True)
+        g = self.noised_representation(g, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t,)
 
         # predict the noise that was added
         h_dyn, x_dyn = self.dynamics(g, t, batch_idxs)
@@ -182,19 +182,18 @@ class PharmacophoreDiff(pl.LightningModule):
         sigma_t = self.sigma(gamma_t)[batch_idxs['pharm']][:, None]
 
         if self.endpoint_param_feat:
-            h_pred = h_dyn
-            h_loss=fn.cross_entropy(h_pred, g_copy.nodes['pharm'].data['h_0'].argmax(dim=1),reduction='none')
+            h_0_pred = h_dyn
+            h_loss=fn.cross_entropy(h_0_pred, g_copy.nodes['pharm'].data['h_0'].argmax(dim=1),reduction='none')
         else:
             h_loss = (eps['h'] - h_dyn).square().sum(dim=1)
-            h_pred = (g.nodes['pharm'].data['h_0'] - sigma_t*h_dyn)/alpha_t
+            h_0_pred = (g.nodes['pharm'].data['h_t'] - sigma_t*h_dyn)/alpha_t
         if self.endpoint_param_coord:
-            #get prediction back to the original frame of reference
-            x_pred = x_dyn + sampled_com[batch_idxs['pharm']]/alpha_t
-            x_loss = ((x_pred - g_copy.nodes['pharm'].data['x_0'])).square().sum(dim=1)    
+            x_0_pred = x_dyn
+            x_loss = ((x_0_pred - g_copy.nodes['pharm'].data['x_0'])).square().sum(dim=1)    
         else:
             x_loss = ((eps['x'] - x_dyn)).square().sum(dim=1)
             #get prediction on original frame of reference
-            x_pred = (g.nodes['pharm'].data['x_0'] - sigma_t*x_dyn + sampled_com[batch_idxs['pharm']])/alpha_t 
+            x_0_pred = (g.nodes['pharm'].data['x_t'] - sigma_t*x_dyn)/alpha_t 
         
         weight_metric=1 - t[batch_idxs['pharm']]
         weight_loss=torch.ones_like(t)[batch_idxs['pharm']]
@@ -210,11 +209,11 @@ class PharmacophoreDiff(pl.LightningModule):
         losses[phase + ' feat loss'] = h_loss / eps['h'].numel()
 
         with torch.no_grad():
-            metrics[phase + ' position error'] = (x_pred - g_copy.nodes['pharm'].data['x_0']).square().sum(dim=1).mean()
-            metrics[phase + ' weighted position error'] = (weight_metric*((x_pred - g_copy.nodes['pharm'].data['x_0'])**2).sum(dim=1)).mean()
-            h_pred=h_pred.argmax(dim=1)
-            metrics[phase + ' accuracy'] = (h_pred == g_copy.nodes['pharm'].data['h_0'].argmax(dim=1)).float().mean()
-            metrics[phase + ' weighted accuracy'] = (weight_metric*(h_pred == g_copy.nodes['pharm'].data['h_0'].argmax(dim=1)).float()).mean()
+            metrics[phase + ' position error'] = (x_0_pred - g.nodes['pharm'].data['x_0']).square().sum(dim=1).mean()
+            metrics[phase + ' weighted position error'] = (weight_metric*((x_0_pred - g.nodes['pharm'].data['x_0'])**2).sum(dim=1)).mean()
+            h_0_pred=h_0_pred.argmax(dim=1)
+            metrics[phase + ' accuracy'] = (h_0_pred == g.nodes['pharm'].data['h_0'].argmax(dim=1)).float().mean()
+            metrics[phase + ' weighted accuracy'] = (weight_metric*(h_0_pred == g.nodes['pharm'].data['h_0'].argmax(dim=1)).float()).mean()
             # if 'prot_ph' in g.ntypes:
             #     prot_ph_batch_idx = batch_idxs['prot_ph']
             #     print(g_copy.nodes['prot_ph'].data['x_0'].shape,g_copy.nodes['prot_ph'].data['h_0'].shape)
@@ -263,7 +262,7 @@ class PharmacophoreDiff(pl.LightningModule):
         return loss_dict[phase+' total loss']
     
     
-    def get_pos_feat_for_visual(self,g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor):
+    def get_pos_feat_for_visual(self, g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor, batch_idxs: Dict[str, torch.Tensor]):
         #make a copy of g
         g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
 
@@ -273,13 +272,14 @@ class PharmacophoreDiff(pl.LightningModule):
         #move features back to initial frame of reference
         prot_com = dgl.readout_nodes(g_frame, feat='x_0', ntype='prot', op='mean')
         delta=init_prot_com-prot_com
-        g_frame.nodes['pharm'].data['x_0'] = g_frame.nodes['pharm'].data['x_0']+delta
+        delta = delta[batch_idxs['pharm']]
+        g_frame.nodes['pharm'].data['x_t'] = g_frame.nodes['pharm'].data['x_t']+delta
 
         g_frame=g_frame.to('cpu')
         pharm_pos, pharm_feat =[],[]
         for g_i in dgl.unbatch(g_frame):
-            pharm_pos.append(g_i.nodes['pharm'].data['x_0'])
-            pharm_feat.append(g_i.nodes['pharm'].data['h_0'])
+            pharm_pos.append(g_i.nodes['pharm'].data['x_t'])
+            pharm_feat.append(g_i.nodes['pharm'].data['h_t'])
         return pharm_pos, pharm_feat
     
     def sample_p_zs_given_zt(self, s: torch.Tensor, t: torch.Tensor, g: dgl.heterograph, batch_idxs: Dict[str, torch.Tensor]):
@@ -310,21 +310,21 @@ class PharmacophoreDiff(pl.LightningModule):
         if self.endpoint_param_coord:
             mu_pos = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['x_0'][pharm_batch_idx] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_x
         else:
-            mu_pos = g.nodes['pharm'].data['x_0'][pharm_batch_idx] /alpha_t_given_s - var_terms*pred_x
+            mu_pos = g.nodes['pharm'].data['x_t'][pharm_batch_idx] /alpha_t_given_s - var_terms*pred_x
         if self.endpoint_param_feat:
             mu_feat = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['h_0'][pharm_batch_idx] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_h
         else:
-            mu_feat = g.nodes['pharm'].data['h_0'][pharm_batch_idx] /alpha_t_given_s - var_terms*pred_h
+            mu_feat = g.nodes['pharm'].data['h_t'][pharm_batch_idx] /alpha_t_given_s - var_terms*pred_h
 
         #compute sigma for p(zs|zt)
         sigma = sigma_t_given_s * sigma_s/sigma_t
         sigma = sigma[pharm_batch_idx].view(-1, 1)
 
         # sample zs given the mu and sigma we just computed
-        pos_noise = torch.randn(g.nodes['pharm'].data['x_0'].shape, device=device)
-        feat_noise = torch.randn(g.nodes['pharm'].data['h_0'].shape, device=device)
-        g.nodes['pharm'].data['x_0'] = mu_pos + sigma*pos_noise
-        g.nodes['pharm'].data['h_0'] = mu_feat + sigma*feat_noise
+        pos_noise = torch.randn(g.nodes['pharm'].data['x_t'].shape, device=device)
+        feat_noise = torch.randn(g.nodes['pharm'].data['h_t'].shape, device=device)
+        g.nodes['pharm'].data['x_t'] = mu_pos + sigma*pos_noise
+        g.nodes['pharm'].data['h_t'] = mu_feat + sigma*feat_noise
 
         #remove pharmacophore COM from system
         g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
@@ -355,16 +355,13 @@ class PharmacophoreDiff(pl.LightningModule):
         g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]
 
         #sample initial positions/features of pharmacophore features
-        for feat in ['x_0', 'h_0']:
-            g.nodes['pharm'].data[feat] = torch.randn(g.nodes['pharm'].data[feat].shape, device=device)
-
-        #recenter with newly generated features:
-        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
+        g.nodes['pharm'].data['x_t'] = torch.randn(g.num_nodes('pharm'), 3, device=device)
+        g.nodes['pharm'].data['h_t'] = torch.randn(g.num_nodes('pharm'), self.n_pharm_feats, device=device)
 
         if visualize_trajectory:
 
             pharm_pos_frames,pharm_feat_frames = [],[] 
-            pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g,init_prot_com)
+            pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g, init_prot_com, batch_idxs)
             pharm_pos_frames.append(pharm_pos)
             pharm_feat_frames.append(pharm_feats)
 
@@ -378,11 +375,15 @@ class PharmacophoreDiff(pl.LightningModule):
             g=self.sample_p_zs_given_zt(s_arr, t_arr, g, batch_idxs)
 
             if visualize_trajectory:
-                pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g,init_prot_com)
+                pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g, init_prot_com, batch_idxs)
                 pharm_pos_frames.append(pharm_pos)
                 pharm_feat_frames.append(pharm_feats)
+
+        # set the t=t features to t=0 features
+        for feat in 'xh':
+            g.nodes['pharm'].data[f'{feat}_0'] = g.nodes['pharm'].data[f'{feat}_t']
             
-        g=self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein')
+        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
 
         for n_type in ['pharm', 'prot']:
             g.nodes[n_type].data['x_0'] = g.nodes[n_type].data['x_0'] + init_prot_com[batch_idxs[n_type]]

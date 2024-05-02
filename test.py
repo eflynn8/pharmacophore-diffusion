@@ -17,8 +17,10 @@ from utils import write_pharmacophore_file, copy_graph
 def parse_arguments():
     p = argparse.ArgumentParser()
     
-    p.add_argument('--model_file', type=str,required=True,help='Path to file containing model weights, required.')
-    p.add_argument('--run_dir', type=str, default=None, help='directory of output from a training run, should contain the config file of the run. If not provided, parent directory of model_file will be used.')
+    p.add_argument('--ckpt', type=Path, help='Path to checkpoint file. Must be inside model dir.', default=None)
+    p.add_argument('--model_dir', type=Path, default=None, help='Directory of output from a training run. Will use last.ckpt in this directory.')
+    
+    
     p.add_argument('--samples_per_pocket', type=int, default=1, help="number of samples generated per pocket")
     p.add_argument('--max_batch_size', type=int, default=128, help='maximum feasible batch size due to memory constraints')
     p.add_argument('--seed', type=int, default=42)
@@ -32,7 +34,8 @@ def parse_arguments():
     
     args = p.parse_args()
 
-
+    if args.ckpt is None and args.model_dir is None:
+        raise ValueError('Must provide either --ckpt or --model_dir')
     
     return args
 
@@ -47,11 +50,12 @@ def main():
     pharm_dir.mkdir(exist_ok=True)
 
     # get filepath of config file within model_dir
-    model_file = Path(args.model_file)
-    if args.run_dir is not None:
-        run_dir = Path(args.run_dir)
-    else:
-        run_dir = model_file.parent
+    if args.ckpt is not None:
+        run_dir = args.ckpt.parent.parent
+        model_file = args.ckpt
+    elif args.model_dir is not None:
+        run_dir = args.model_dir
+        model_file = run_dir / 'checkpoints' / 'last.ckpt'
 
     # get config file
     #be robust to yml vs yaml lol
@@ -78,7 +82,7 @@ def main():
     test_dataset = test_data_module.val_dataset
 
     #create diffusion model
-    model = PharmacophoreDiff.load_from_checkpoint(args.model_file).to(device)
+    model = PharmacophoreDiff.load_from_checkpoint(model_file).to(device)
     model.eval()
 
     pocket_sampling_times=[]

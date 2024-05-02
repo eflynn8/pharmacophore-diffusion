@@ -136,7 +136,7 @@ class PharmRecDynamicsGVP(nn.Module):
         with g.local_scope():
 
             # get initial pharmacophore and protein features from graph
-            pharm_scalars = g.nodes['pharm'].data['h_0']
+            pharm_scalars = g.nodes['pharm'].data['h_t']
             prot_scalars = g.nodes['prot'].data['h_0']
 
             # add timestep to node features
@@ -151,9 +151,9 @@ class PharmRecDynamicsGVP(nn.Module):
             prot_scalars = self.prot_encoder(prot_scalars)
 
             # set pharm/prot features in graph
-            g.nodes['pharm'].data['h_0'] = pharm_scalars
+            g.nodes['pharm'].data['h_t'] = pharm_scalars
             g.nodes['prot'].data['h_0'] = prot_scalars
-            g.nodes['pharm'].data['v_0'] = torch.zeros((pharm_scalars.shape[0], self.vector_size, 3),
+            g.nodes['pharm'].data['v_t'] = torch.zeros((pharm_scalars.shape[0], self.vector_size, 3),
                                                      device=g.device, dtype=pharm_scalars.dtype)
             #TODO: add prot vector features
             #TODO clean up redundancy
@@ -161,7 +161,7 @@ class PharmRecDynamicsGVP(nn.Module):
             node_data = {}
             node_data['pharm'] = (
                 pharm_scalars,
-                g.nodes['pharm'].data['x_0'],
+                g.nodes['pharm'].data['x_t'],
                 torch.zeros((pharm_scalars.shape[0], self.vector_size, 3),
                             device=g.device, dtype=pharm_scalars.dtype)
             )
@@ -191,15 +191,15 @@ class PharmRecDynamicsGVP(nn.Module):
 
         # add pharm-pharm edges
         if self.ff_k > 0:
-            ff_idxs = knn_graph(g.nodes['pharm'].data['x_0'], k=self.ff_k, batch=pharm_batch_idx)
+            ff_idxs = knn_graph(g.nodes['pharm'].data['x_t'], k=self.ff_k, batch=pharm_batch_idx)
         else:
-            ff_idxs = radius_graph(g.nodes['pharm'].data['x_0'], r=self.graph_cutoffs['ff'], batch=pharm_batch_idx, max_num_neighbors=200)
+            ff_idxs = radius_graph(g.nodes['pharm'].data['x_t'], r=self.graph_cutoffs['ff'], batch=pharm_batch_idx, max_num_neighbors=200)
         g.add_edges(ff_idxs[0], ff_idxs[1], etype='ff')
 
         # add prot-pharm edges
         if self.pf_k > 0:
             ### Change to knn instead of knn_graph and check which idxs belong to prots and which to pharms
-            pf_idxs = knn(g.nodes['prot'].data['x_0'], g.nodes['pharm'].data['x_0'], k=self.pf_k, batch_x=prot_batch_idx, batch_y=pharm_batch_idx)
+            pf_idxs = knn(g.nodes['prot'].data['x_0'], g.nodes['pharm'].data['x_t'], k=self.pf_k, batch_x=prot_batch_idx, batch_y=pharm_batch_idx)
             # print("VERIFY PF EDGES!")
             # print("PF Idxs: ", pf_idxs)
             ## The edge lists are flipped for knn vs radius
@@ -208,7 +208,7 @@ class PharmRecDynamicsGVP(nn.Module):
             # add pharm-prot edges  
             g.add_edges(pf_idxs[0], pf_idxs[1], etype='fp')
         else:     
-            pf_idxs = radius(x=g.nodes['pharm'].data['x_0'], y=g.nodes['prot'].data['x_0'], batch_x=pharm_batch_idx, batch_y=prot_batch_idx, r=self.graph_cutoffs['pf'], max_num_neighbors=100)
+            pf_idxs = radius(x=g.nodes['pharm'].data['x_t'], y=g.nodes['prot'].data['x_0'], batch_x=pharm_batch_idx, batch_y=prot_batch_idx, r=self.graph_cutoffs['pf'], max_num_neighbors=100)
             g.add_edges(pf_idxs[0], pf_idxs[1], etype='pf')
 
             # add pharm-prot edges  

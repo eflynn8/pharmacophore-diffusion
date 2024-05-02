@@ -48,6 +48,8 @@ class CrossdockedDataModule(pl.LightningDataModule):
         # record the splits which we are using for training and validation
         self.train_split_idxs = train_split_idxs
         self.val_split_idxs = val_split_idxs
+
+        self.save_hyperparameters()
         
 
     def setup(self, stage: str='fit'):
