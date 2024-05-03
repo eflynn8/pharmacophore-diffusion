@@ -4,6 +4,15 @@ from typing import List
 from rdkit import Chem
 from pathlib import Path
 
+pymol_color_map = {
+    'Aromatic': 'purple',
+    'Hydrophobic': 'green',
+    'HydrogenAcceptor': 'orange',
+    'HydrogenDonor': 'white',
+    'PositiveIon': 'blue',
+    'NegativeIon': 'red',
+}
+
 class SampledPharmacophore:
 
     type_idx_to_elem = ['P', 'S', 'F', 'N', 'O', 'C',]
@@ -76,6 +85,10 @@ class SampledPharmacophore:
         cmds = []
         for ph_type, elem in self.ph_type_to_elem.items():
             cmds.append(f"select {ph_type}, {sel_str} and elem {elem}")
+
+        for ph_type, color in pymol_color_map.items():
+            cmds.append(f"color {color}, {ph_type}")
+
         return ';'.join(cmds)
 
 
