@@ -12,17 +12,20 @@ from models.pharmacodiff import PharmacophoreDiff
 
 from config_utils.load_from_config import model_from_config, data_module_from_config
 from dataset.receptor_utils import write_pocket_file
+from analysis.pharm_builder import SampledPharmacophore
 from utils import write_pharmacophore_file, copy_graph
 
 def parse_arguments():
     p = argparse.ArgumentParser()
     
-    p.add_argument('--model_file', type=str,required=True,help='Path to file containing model weights, required.')
-    p.add_argument('--run_dir', type=str, default=None, help='directory of output from a training run, should contain the config file of the run. If not provided, parent directory of model_file will be used.')
+    p.add_argument('--ckpt', type=Path, help='Path to checkpoint file. Must be inside model dir.', default=None)
+    p.add_argument('--model_dir', type=Path, default=None, help='Directory of output from a training run. Will use last.ckpt in this directory.')
+    
+    
     p.add_argument('--samples_per_pocket', type=int, default=1, help="number of samples generated per pocket")
     p.add_argument('--max_batch_size', type=int, default=128, help='maximum feasible batch size due to memory constraints')
     p.add_argument('--seed', type=int, default=42)
-    p.add_argument('--output_dir', type=str, default='test_results/')
+    p.add_argument('--output_dir', type=Path, default=None)
     p.add_argument('--max_tries', type=int, default=1, help='maximum number of batches to sample per pocket')
     p.add_argument('--dataset_size', type=int, default=None, help='truncate test dataset')
     p.add_argument('--dataset_idx', type=int, default=None)
@@ -32,7 +35,8 @@ def parse_arguments():
     
     args = p.parse_args()
 
-
+    if args.ckpt is None and args.model_dir is None:
+        raise ValueError('Must provide either --ckpt or --model_dir')
     
     return args
 
@@ -40,18 +44,24 @@ def main():
 
     args = parse_arguments()
 
+    # get filepath of config file within model_dir
+    if args.ckpt is not None:
+        run_dir = args.ckpt.parent.parent
+        model_file = args.ckpt
+    elif args.model_dir is not None:
+        run_dir = args.model_dir
+        model_file = run_dir / 'checkpoints' / 'last.ckpt'
+
     #get output dir path and create the directory
-    output_dir = Path(args.output_dir)
+    if args.output_dir is None:
+        output_dir = run_dir / 'samples'
+    else:
+        output_dir = args.output_dir
+
     output_dir.mkdir(exist_ok=True) 
-    pharm_dir = output_dir / 'sampled_pharmacophores'
+    pharm_dir = output_dir
     pharm_dir.mkdir(exist_ok=True)
 
-    # get filepath of config file within model_dir
-    model_file = Path(args.model_file)
-    if args.run_dir is not None:
-        run_dir = Path(args.run_dir)
-    else:
-        run_dir = model_file.parent
 
     # get config file
     #be robust to yml vs yaml lol
@@ -78,7 +88,11 @@ def main():
     test_dataset = test_data_module.val_dataset
 
     #create diffusion model
-    model = PharmacophoreDiff.load_from_checkpoint(args.model_file).to(device)
+    # TODO: remove this try/except, it is only for backwards compatibility for models trained before i added the ph_type_map argument to the model class
+    try:
+        model = PharmacophoreDiff.load_from_checkpoint(model_file).to(device)
+    except TypeError:
+        model = PharmacophoreDiff.load_from_checkpoint(model_file, ph_type_map=config['dataset']['ph_type_map']).to(device)
     model.eval()
 
     pocket_sampling_times=[]
@@ -111,10 +125,10 @@ def main():
         else:
             ref_init_pharm_com = None
 
-        pocket_raw_pharmacophores = []
+        sampled_pharms: List[SampledPharmacophore] = []
 
         while True:
-            n_pharmacophores_needed = args.samples_per_pocket - len(pocket_raw_pharmacophores)
+            n_pharmacophores_needed = args.samples_per_pocket - len(sampled_pharms)
             batch_size = min(n_pharmacophores_needed, args.max_batch_size)
 
             #collect just the batch_size graphs and init_pharm_coms that we need
@@ -126,22 +140,13 @@ def main():
             else:
                 init_pharm_com = None
 
-            #sample pharmacophore feats positions/features
+            #sample pharmacophores
             with g_batch.local_scope():
-                batch_pharm_pos,batch_pharm_feat = model.sample_given_receptor(g_batch, init_pharm_com=init_pharm_com,visualize_trajectory=args.visualize_trajectory)
-
-            for pharm_idx, (pharm_pos_i,pharm_feat_i) in enumerate(zip(batch_pharm_pos,batch_pharm_feat)):
-                
-                pharm_coords_list,pharm_feats_list=[],[]
-                #convert pharm feats features to feature types
-                for coord_i,feat_i in zip(pharm_pos_i,pharm_feat_i):
-                    pharm_feats_list.append(torch.argmax(feat_i, dim=1).tolist())
-                    pharm_coords_list.append(coord_i)
-                #append to pocket_raw_pharmacophores
-                pocket_raw_pharmacophores.append((pharm_coords_list,pharm_feats_list))
+                batch_pharms = model.sample_given_receptor(g_batch, init_pharm_com=init_pharm_com,visualize_trajectory=args.visualize_trajectory)
+                sampled_pharms.extend(batch_pharms)
 
             #break out of loop when we have enough pharmacophores
-            if len(pocket_raw_pharmacophores) >= args.samples_per_pocket:
+            if len(sampled_pharms) >= args.samples_per_pocket:
                 break
         
         pocket_sample_time = time.time() - pocket_sample_start
@@ -160,10 +165,11 @@ def main():
         print(f'Pocket {dataset_idx} sampling time: {pocket_sample_time:.2f} seconds')
 
         #print the sampling time per pharmacophore
-        print(f'Pocket {dataset_idx} sampling time per pharmacophore: {pocket_sample_time/len(pocket_raw_pharmacophores):.2f} seconds')
+        print(f'Pocket {dataset_idx} sampling time per pharmacophore: {pocket_sample_time/len(sampled_pharms):.2f} seconds')
 
+
+        # write the protein pocket file
         pocket_file = pocket_dir / 'pocket.pdb'
-
         write_pocket_file(ref_prot_file,ref_lig_rdmol, pocket_file,cutoff=config['dataset']['pocket_cutoff'])
 
         #save reference files
@@ -173,11 +179,29 @@ def main():
         sdfwriter = Chem.SDWriter(ref_files_dir / 'ligand.sdf')            
         sdfwriter.write(ref_lig_rdmol,confId=0)
 
-
         #write out pharmacophores
-        for pharm_idx, (pharm_pos, pharm_feats) in enumerate(pocket_raw_pharmacophores):
-            pharm_file = pocket_dir / f'pharm_{pharm_idx}.xyz'
-            write_pharmacophore_file(pharm_pos, pharm_feats, pharm_file)
+        ph_files = []
+        if args.visualize_trajectory:
+            # write a trajectory file for each sampled pharmacophore
+            for pharm_idx, sampled_pharm in enumerate(sampled_pharms):
+                pharm_file = pocket_dir / f'pharm_{pharm_idx}_traj.xyz'
+                ph_files.append(pharm_file)
+                sampled_pharm.traj_to_xyz(pharm_file)
+        else:
+            # write a single file that contains all sampled pharmacophores
+            pharm_file = pocket_dir / 'pharms.xyz'
+            ph_files.append(pharm_file)
+            pharm_file_content = ''
+            for sampled_pharm in sampled_pharms:
+                pharm_file_content += sampled_pharm.to_xyz_file()
+            with open(pharm_file, 'w') as f:
+                f.write(pharm_file_content)
+
+        # write out commands for grouping pharmacophores in pymol
+        pymol_cmds_file = pocket_dir / 'pymol_cmds.txt'
+        pymol_cmds = sampled_pharms[0].write_ph_pymol_cmds(ph_files)
+        with open(pymol_cmds_file, 'w') as f:
+            f.write(pymol_cmds)
 
 if __name__ == '__main__':
     main()
