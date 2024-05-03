@@ -25,7 +25,7 @@ def get_edges_per_batch(edge_node_idxs: torch.Tensor, batch_size: int, node_batc
 def get_nodes_per_batch(node_idxs: torch.Tensor, batch_size: torch.Tensor, node_batch_dxs: torch.Tensor):
     return get_edges_per_batch(node_idxs, batch_size, node_batch_dxs)
 
-def copy_graph(g: dgl.DGLHeteroGraph, n_copies: int, pharm_atoms_per_copy: torch.Tensor = None, batched_graph=False) -> List[dgl.DGLHeteroGraph]:
+def copy_graph(g: dgl.DGLHeteroGraph, n_copies: int, pharm_feats_per_copy: torch.Tensor = None, batched_graph=False) -> List[dgl.DGLHeteroGraph]:
     
     # get edge data
     e_data_dict = {}
@@ -38,14 +38,14 @@ def copy_graph(g: dgl.DGLHeteroGraph, n_copies: int, pharm_atoms_per_copy: torch
         num_nodes_dict[ntype] = g.num_nodes(ntype=ntype)
 
     # make copies of graph
-    if pharm_atoms_per_copy is None:
+    if pharm_feats_per_copy is None:
         g_copies = [ dgl.heterograph(e_data_dict, num_nodes_dict=num_nodes_dict, device=g.device) for _ in range(n_copies) ]
     else:
         g_copies = []
         for copy_idx in range(n_copies):
 
             num_nodes_clone = { k:v for k,v in num_nodes_dict.items() }
-            num_nodes_clone['pharm'] = int(pharm_atoms_per_copy[copy_idx])
+            num_nodes_clone['pharm'] = int(pharm_feats_per_copy[copy_idx])
 
             g_copies.append( dgl.heterograph(e_data_dict, num_nodes_dict=num_nodes_clone, device=g.device) )
 
@@ -64,9 +64,9 @@ def copy_graph(g: dgl.DGLHeteroGraph, n_copies: int, pharm_atoms_per_copy: torch
         for ntype in g.ntypes:
             for feat in g.nodes[ntype].data.keys():
 
-                if ntype == 'pharm' and pharm_atoms_per_copy is not None:
+                if ntype == 'pharm' and pharm_feats_per_copy is not None:
                     dims = g.nodes[ntype].data[feat].shape[1:]
-                    val = torch.zeros(pharm_atoms_per_copy[idx], *dims, device=g.device)
+                    val = torch.zeros(pharm_feats_per_copy[idx], *dims, device=g.device)
                 else:
                     val = g.nodes[ntype].data[feat].detach().clone()
 
@@ -96,4 +96,23 @@ def get_batch_idxs(g: dgl.DGLHeteroGraph) -> Dict[str, torch.Tensor]:
 
 def save_model(model, output_file: Path):
     torch.save(model.state_dict(), str(output_file))
+
+def write_pharmacophore_file(coords_list: List[torch.tensor], atom_types_list: List[list], pharm_type_map: list , filename: str = None, ):
+
+    type_idx_to_elem = ['P', 'S', 'F', 'N', 'O', 'C',]
+    out=""
+    for coords, atom_types in zip(coords_list, atom_types_list):
+        assert len(coords) == len(atom_types)
+        atom_types= [type_idx_to_elem[i] for i in atom_types]
+        out += f"{len(coords)}\n"
+        for i in range(len(coords)):
+            out += f"{atom_types[i]} {coords[i, 0]:.3f} {coords[i, 1]:.3f} {coords[i, 2]:.3f}\n"
+
+    if filename is None:
+        return out
+
+    fp = Path(filename)
+    
+    with open(filename, 'w') as f:
+        f.write(out)
 
