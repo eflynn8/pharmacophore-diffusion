@@ -97,7 +97,7 @@ def get_batch_idxs(g: dgl.DGLHeteroGraph) -> Dict[str, torch.Tensor]:
 def save_model(model, output_file: Path):
     torch.save(model.state_dict(), str(output_file))
 
-def write_pharmacophore_file(coords_list: List[torch.tensor], atom_types_list: List[list], filename: str = None):
+def write_pharmacophore_file(coords_list: List[torch.tensor], atom_types_list: List[list], pharm_type_map: list , filename: str = None, ):
 
     type_idx_to_elem = ['P', 'S', 'F', 'N', 'O', 'C',]
     out=""
@@ -110,6 +110,8 @@ def write_pharmacophore_file(coords_list: List[torch.tensor], atom_types_list: L
 
     if filename is None:
         return out
+
+    fp = Path(filename)
     
     with open(filename, 'w') as f:
         f.write(out)

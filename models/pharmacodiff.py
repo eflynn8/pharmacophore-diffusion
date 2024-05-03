@@ -14,6 +14,7 @@ from torch_scatter import segment_coo, segment_csr
 from losses.dist_hinge_loss import DistanceHingeLoss
 from models.dynamics_gvp import PharmRecDynamicsGVP
 from models.n_nodes_dist import PharmSizeDistribution
+from analysis.pharm_builder import SampledPharmacophore
 # from models.scheduler import LRScheduler
 from utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from torch_scatter import segment_csr
@@ -22,10 +23,11 @@ import pytorch_lightning as pl
 
 class PharmacophoreDiff(pl.LightningModule):
 
-    def __init__(self, pharm_nf, rec_nf, processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1, endpoint_param_feat: bool = False, endpoint_param_coord: bool = False, weighted_loss: bool = False, **kwargs):
+    def __init__(self, pharm_nf, rec_nf, ph_type_map: List[str], processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1, endpoint_param_feat: bool = False, endpoint_param_coord: bool = False, weighted_loss: bool = False, **kwargs):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
+        self.ph_type_map = ph_type_map
         self.n_timesteps = n_timesteps
         self.pharm_feat_norm_constant = pharm_feat_norm_constant
         self.endpoint_param_feat = endpoint_param_feat
@@ -391,21 +393,30 @@ class PharmacophoreDiff(pl.LightningModule):
         g=self.unnormalize(g)
 
         if visualize_trajectory:
+            # reshape trajectory frames
 
             pharm_pos_frames = list(zip(*pharm_pos_frames))
             pharm_feat_frames = list(zip(*pharm_feat_frames))
 
-            return pharm_pos_frames, pharm_feat_frames
+            trajs = []
+            for batch_idx in range(len(pharm_pos_frames)):
+                pos_frames = torch.stack(pharm_pos_frames[batch_idx], dim=0)
+                feat_frames = torch.stack(pharm_feat_frames[batch_idx], dim=0)
+                trajs.append((pos_frames, feat_frames))
 
-        pharm_pos=[]
-        pharm_feat=[]
 
         g=g.to('cpu')
-        for g_i in dgl.unbatch(g):
-            pharm_pos.append([g_i.nodes['pharm'].data['x_0']])
-            pharm_feat.append([g_i.nodes['pharm'].data['h_0']])
+        sampled_pharms: List[SampledPharmacophore] = []
+        for gidx, g_i in enumerate(dgl.unbatch(g)):
+            kwargs = {
+                'g': g_i, 
+                'pharm_type_map': self.ph_type_map,
+            }
+            if visualize_trajectory:
+                kwargs['traj_frames'] = trajs[gidx]
+            sampled_pharms.append(SampledPharmacophore(**kwargs))
 
-        return pharm_pos, pharm_feat
+        return sampled_pharms
     
     def sample(self,  ref_graphs: List[dgl.DGLHeteroGraph], n_pharm_feats: List[List[int]], diff_batch_size: int = 32, use_ref_pharm_com: bool = False, visualize_trajectory: bool=False):
 
