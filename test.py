@@ -197,12 +197,6 @@ def main():
             with open(pharm_file, 'w') as f:
                 f.write(pharm_file_content)
 
-        # write out commands for grouping pharmacophores in pymol
-        pymol_cmds_file = pocket_dir / 'pymol_cmds.txt'
-        pymol_cmds = sampled_pharms[0].write_ph_pymol_cmds(ph_files)
-        with open(pymol_cmds_file, 'w') as f:
-            f.write(pymol_cmds)
-
 if __name__ == '__main__':
     main()
 
