@@ -4,15 +4,6 @@ from typing import List
 from rdkit import Chem
 from pathlib import Path
 
-pymol_color_map = {
-    'Aromatic': 'purple',
-    'Hydrophobic': 'green',
-    'HydrogenAcceptor': 'orange',
-    'HydrogenDonor': 'white',
-    'PositiveIon': 'blue',
-    'NegativeIon': 'red',
-}
-
 class SampledPharmacophore:
 
     type_idx_to_elem = ['P', 'S', 'F', 'N', 'O', 'C',]
@@ -78,17 +69,5 @@ class SampledPharmacophore:
 
         with open(filename, 'w') as f:
             f.write(out)
-
-    def write_ph_pymol_cmds(self, ph_files):
-        pymol_selection_names = [ Path(ph_file).stem for ph_file in ph_files ]
-        sel_str = ' or '.join(pymol_selection_names)
-        cmds = []
-        for ph_type, elem in self.ph_type_to_elem.items():
-            cmds.append(f"select {ph_type}, {sel_str} and elem {elem}")
-
-        for ph_type, color in pymol_color_map.items():
-            cmds.append(f"color {color}, {ph_type}")
-
-        return ';'.join(cmds)
 
 
