@@ -23,7 +23,7 @@ class SampleAnalyzer:
                 'prot_ph_pos': prot_ph_pos,
                 'prot_ph_types': prot_ph_types
             }
-            n_valid_ph_nodes = compute_complementarity(**kwargs)
+            n_valid_ph_nodes = compute_complementarity(**kwargs, return_count=True)
             n_ph_nodes = ph.n_ph_centers
             valid_numerator += n_valid_ph_nodes
             valid_denominator += n_ph_nodes
