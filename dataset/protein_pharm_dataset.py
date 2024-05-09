@@ -218,27 +218,33 @@ def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_fea
         pp_edges = radius_graph(prot_atom_positions, r=cutoffs['pp'], max_num_neighbors=100)
         graph_data[('prot', 'pp', 'prot')] = (pp_edges[0].cpu(), pp_edges[1].cpu())
 
+    if prot_ph_pos is not None:
+        assert prot_ph_feat is not None
+        n_prot_ph_nodes = prot_ph_pos.shape[0]
+    else:
+        n_prot_ph_nodes = 0
+
     num_nodes_dict = {
-        'prot': n_prot_atoms,'pharm': n_pharm_atoms
+        'prot': n_prot_atoms,'pharm': n_pharm_atoms, 'prot_ph': n_prot_ph_nodes
         }
 
-    #TODO use these for hinge loss
-    # if prot_ph_pos is not None:
-    #     n_prot_ph_nodes = prot_ph_pos.shape[0]
-    #     num_nodes_dict['prot_ph'] = n_prot_ph_nodes
     # create graph object
     g = dgl.heterograph(graph_data, num_nodes_dict=num_nodes_dict)
 
-    # add node data
+    # add pharmacophore node data
     if pharm_atom_positions is not None:
         g.nodes['pharm'].data['x_0'] = pharm_atom_positions
         g.nodes['pharm'].data['h_0'] = pharm_atom_features
-    #TODO use these for hinge loss
-    # if prot_ph_pos is not None:
-    #     g.nodes['prot_ph'].data['x_0'] = prot_ph_pos
-    #     g.nodes['prot_ph'].data['h_0'] = prot_ph_feat
+
+
+    # add protein node data
     g.nodes['prot'].data['x_0'] = prot_atom_positions
     g.nodes['prot'].data['h_0'] = prot_atom_features
+
+    # add protein pharmacophore node data
+    if prot_ph_pos is not None:
+        g.nodes['prot_ph'].data['x_0'] = prot_ph_pos
+        g.nodes['prot_ph'].data['h_0'] = prot_ph_feat
 
     return g
 

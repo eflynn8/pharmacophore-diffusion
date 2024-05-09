@@ -15,6 +15,7 @@ from losses.dist_hinge_loss import DistanceHingeLoss
 from models.dynamics_gvp import PharmRecDynamicsGVP
 from models.n_nodes_dist import PharmSizeDistribution
 from analysis.pharm_builder import SampledPharmacophore
+from analysis.metrics import SampleAnalyzer
 # from models.scheduler import LRScheduler
 from utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from torch_scatter import segment_csr
@@ -317,8 +318,17 @@ class PharmacophoreDiff(pl.LightningModule):
 
         init_pharm_com = torch.stack(init_pharm_com, dim=0)
 
+        self.eval()
+
         # sample pharmacophores
         sampled_pharms = self.sample(pockets, n_pharms, max_batch_size=64, init_pharm_com=init_pharm_com, visualize_trajectory=False)
+
+        self.train()
+
+        # compute metrics on sampled pharmacophores
+        metrics = SampleAnalyzer().analyze(sampled_pharms)
+
+        return metrics
         
 
     def get_pos_feat_for_visual(self, g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor, batch_idxs: Dict[str, torch.Tensor]):

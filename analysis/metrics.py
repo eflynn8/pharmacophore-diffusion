@@ -1,7 +1,39 @@
 import torch
 from constants import ph_idx_to_type
+from analysis.pharm_builder import SampledPharmacophore
+from typing import List
 
-def compute_complementarity(pharm_feat, pharm_pos, prot_ph_feat, prot_ph_pos):
+class SampleAnalyzer:
+
+    def analyze(self, sample: List[SampledPharmacophore]):
+        
+        valid_numerator = 0
+        valid_denominator = 0
+        for ph in sample:
+
+            prot_ph_feat = ph.g.nodes['prot_ph'].data['h_0']
+            prot_ph_pos = ph.g.nodes['prot_ph'].data['x_0']
+
+            # convert protein pharmacophore feature indices to types
+            prot_ph_types = [ph_idx_to_type[int(idx)] for idx in prot_ph_feat.argmax(dim=1)]
+
+            kwargs = {
+                'pharm_pos': ph.ph_coords,
+                'pharm_types': ph.ph_types,
+                'prot_ph_pos': prot_ph_pos,
+                'prot_ph_types': prot_ph_types
+            }
+            n_valid_ph_nodes = compute_complementarity(**kwargs)
+            n_ph_nodes = ph.n_ph_centers
+            valid_numerator += n_valid_ph_nodes
+            valid_denominator += n_ph_nodes
+
+        metrics = {
+            'validity': valid_numerator / valid_denominator
+        }
+        return metrics
+
+def compute_complementarity(pharm_types, pharm_pos, prot_ph_types, prot_ph_pos, return_count=False):
     #returns fraction of pharmacophore features that are close to a complementary feature in the binding pocket
 
     matching_types = {
@@ -18,9 +50,6 @@ def compute_complementarity(pharm_feat, pharm_pos, prot_ph_feat, prot_ph_pos):
         "HydrogenDonor": 4,
         "NegativeIon": 5,
         "PositiveIon": 5 }
-    
-    pharm_types = [ph_idx_to_type[idx] for idx in pharm_feat.argmax(dim=1)]
-    prot_ph_types = [ph_idx_to_type[idx] for idx in prot_ph_feat.argmax(dim=1)]
 
     # distances between pharmacophore and receptor features
     distances = torch.cdist(pharm_pos, prot_ph_pos)
@@ -32,6 +61,9 @@ def compute_complementarity(pharm_feat, pharm_pos, prot_ph_feat, prot_ph_pos):
 
     mask = (distances <= ph_matching_distances) & matching
     complement_count = mask.any(dim=1).sum()
-    
-    fraction = complement_count / len(pharm_feat)
-    return fraction
+
+    if return_count:
+        return complement_count
+    else:
+        fraction = complement_count / len(pharm_feat)
+        return fraction
