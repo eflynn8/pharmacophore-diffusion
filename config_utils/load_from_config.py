@@ -16,6 +16,7 @@ def model_from_config(config: dict) -> PharmacophoreDiff:
         rec_nf=n_rec_feat,
         ph_type_map=config['dataset']['ph_type_map'],
         processed_data_dir=config['dataset']['processed_data_dir'],
+        eval_config=config['training']['evaluation'],
         graph_config=config['graph'],
         dynamics_config=config['dynamics'],
         lr_scheduler_config=config['lr_scheduler'],

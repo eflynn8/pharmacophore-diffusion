@@ -23,7 +23,22 @@ import pytorch_lightning as pl
 
 class PharmacophoreDiff(pl.LightningModule):
 
-    def __init__(self, pharm_nf, rec_nf, ph_type_map: List[str], processed_data_dir: Path, n_timesteps: int = 1000, graph_config={}, dynamics_config = {}, lr_scheduler_config = {}, precision=1e-4, pharm_feat_norm_constant=1, endpoint_param_feat: bool = False, endpoint_param_coord: bool = False, weighted_loss: bool = False, **kwargs):
+    def __init__(self, 
+        pharm_nf, 
+        rec_nf, 
+        ph_type_map: List[str], 
+        processed_data_dir: Path, 
+        n_timesteps: int = 1000, 
+        graph_config={}, 
+        dynamics_config = {}, 
+        lr_scheduler_config = {}, 
+        eval_config = {},
+        precision=1e-4, 
+        pharm_feat_norm_constant=1, 
+        endpoint_param_feat: bool = False, 
+        endpoint_param_coord: bool = False, 
+        weighted_loss: bool = False, 
+        **kwargs):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
@@ -43,7 +58,13 @@ class PharmacophoreDiff(pl.LightningModule):
         self.dynamics = PharmRecDynamicsGVP(pharm_nf,rec_nf,**graph_config,**dynamics_config)
 
         self.lr_scheduler_config = lr_scheduler_config
-        # self.n_vec_feats = n_vec_feats
+        
+        # unpack eval config
+        self.sample_interval = eval_config['sample_interval'] # how often to sample, in epochs
+        self.pharms_per_pocket = eval_config['pharms_per_pocket'] # how many pharmacophores to sample per pocket
+        self.n_pockets_to_sample = eval_config['n_pockets'] # how many pockets to sample from
+        self.last_sample_marker = 0 # marker for last time we sampled
+        self.last_epoch_exact = 0
 
         self.save_hyperparameters()
     
@@ -129,21 +150,7 @@ class PharmacophoreDiff(pl.LightningModule):
         sigma_t_given_s = torch.sqrt(sigma2_t_given_s)
 
         return sigma2_t_given_s, sigma_t_given_s, alpha_t_given_s, alpha_s
-    
-    # def encode_receptors(self, g: dgl.DGLHeteroGraph):
-    #     #it seems all I need to do for now is add vector features
-
-    #     device = g.device
-    #     # get batch indicies of every ligand and keypoint - useful later
-    #     batch_idx = torch.arange(g.batch_size, device=device)
-    #     prot_batch_idx = batch_idx.repeat_interleave(g.batch_num_nodes('prot'))
-    #     batch_idxs = get_batch_idxs(g)
-
-    #     #add vector features to proteins
-    #     g.nodes['prot'].data['v_0'] = torch.zeros((g.num_nodes('prot'), self.vector_size, 3), device=device)
-
-    #     return g
-    
+      
     def forward(self, g: dgl.DGLHeteroGraph, phase: str='train'):
 
         losses = {}
@@ -220,7 +227,7 @@ class PharmacophoreDiff(pl.LightningModule):
             #     prot_ph_batch_idx = batch_idxs['prot_ph']
             #     print(g_copy.nodes['prot_ph'].data['x_0'].shape,g_copy.nodes['prot_ph'].data['h_0'].shape)
         
-        return losses,metrics
+        return losses, metrics
     
     def num_training_batches(self):
         return len(self.trainer.train_dataloader)
@@ -238,16 +245,33 @@ class PharmacophoreDiff(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         protpharm_graphs = batch
         phase='train'
-        #current_epoch = self.current_epoch + batch_idx / self.num_training_batches()
-        # self.lr_scheduler.step_lr(current_epoch, self.optimizers())
-        loss_dict,metrics_dict = self.forward(protpharm_graphs,phase=phase)
+
+        # compute the epoch as a float
+        epoch_exact = self.current_epoch + batch_idx / self.num_training_batches()
+        
+        # forward pass, get losses and metrics
+        loss_dict, metrics_dict = self.forward(protpharm_graphs,phase=phase)
+
+        # compute total loss and total error
         loss_dict[phase+' total loss'] = torch.sum(torch.stack(list(loss_dict.values()), dim=0))
         metrics_dict[phase+' total error']= metrics_dict[phase+' position error'] + 1 - metrics_dict[phase+' accuracy']
         metrics_dict[phase+' weighted total error']= metrics_dict[phase+' weighted position error'] + 1 - metrics_dict[phase+' weighted accuracy']
+
+        # sample pharmacopphores and analyze them, if necessary
+        if epoch_exact - self.last_sample_marker >= self.sample_interval:
+            ph_quality_metrics = self.sample_and_analyze()
+            metrics_dict.update(ph_quality_metrics)
+            self.last_sample_marker = epoch_exact
+
+        # TODO: this isn't necessary, PL has a built-in way to log the learning rate, LearningRateCheckpoint or something like that
         try:
             metrics_dict['lr'] = self.lr_schedulers().get_last_lr()[0]
         except:
             metrics_dict['lr'] =self.optimizers().param_groups[0]['lr']
+
+        # log epoch exact
+        loss_dict['epoch_exact'] = epoch_exact
+
         self.log_dict(loss_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
         self.log_dict(metrics_dict, on_step=True, on_epoch=True, prog_bar=True,logger=True, batch_size=protpharm_graphs.batch_size)
         return loss_dict[phase+' total loss']
@@ -255,15 +279,48 @@ class PharmacophoreDiff(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         protpharm_graphs = batch
         phase='val'
+
+        # forward pass
         loss_dict, metrics_dict = self.forward(protpharm_graphs,phase=phase)
+
+        # compute total loss, error
         loss_dict[phase+' total loss'] = sum(list(loss_dict.values()))
         metrics_dict[phase+' total error']= metrics_dict[phase+' position error'] + 1 - metrics_dict[phase+' accuracy']
         metrics_dict[phase+' weighted total error']= metrics_dict[phase+' weighted position error'] + 1 - metrics_dict[phase+' weighted accuracy']
+
+        # record epochs into training (enables easy alignemnt of training and validation metrics)
+        loss_dict['epoch_exact'] = self.last_epoch_exact
+        
+        # log loss, metrics
         self.log_dict(loss_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=batch.batch_size)
         self.log_dict(metrics_dict, on_step=False, on_epoch=True, prog_bar=True,logger=True, batch_size=batch.batch_size)
+
         return loss_dict[phase+' total loss']
     
-    
+    @torch.no_grad()
+    def sample_and_analyze(self):
+        """Samples pharamcophores and computes metrics on them, used during training."""
+        val_dataset = self.trainer.datamodule.val_dataset
+
+        # randomly choose self.n_pockets integers between 0 and len(val_dataset) without replacement
+        pocket_idxs = torch.randint(low=0, high=len(val_dataset), size=(self.n_pockets_to_sample))
+
+        # get the actual pockets as dgl graphs
+        pockets = [val_dataset[int(i)] for i in pocket_idxs]
+
+        # construct tensor containing the number of pharmacophores to sample for each pocket
+        n_pharms = []
+        init_pharm_com = []
+        for g in pockets:
+            n_pharms.append([g.num_nodes('pharm')]*self.pharms_per_pocket)
+            init_pharm_com.append(g.nodes['pharm'].data['x_0'].mean(dim=0)) # use reference pharmacophore COM
+
+        init_pharm_com = torch.stack(init_pharm_com, dim=0)
+
+        # sample pharmacophores
+        sampled_pharms = self.sample(pockets, n_pharms, max_batch_size=64, init_pharm_com=init_pharm_com, visualize_trajectory=False)
+        
+
     def get_pos_feat_for_visual(self, g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor, batch_idxs: Dict[str, torch.Tensor]):
         #make a copy of g
         g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
@@ -333,8 +390,6 @@ class PharmacophoreDiff(pl.LightningModule):
 
         return g
 
-
-    
     @torch.no_grad()
     def sample_given_receptor(self, g:dgl.DGLHeteroGraph, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool = False):
         #method to sample from one receptor with batch_size being the number of pharmacophores generated for the receptor and n_pharm_feats 
@@ -418,53 +473,69 @@ class PharmacophoreDiff(pl.LightningModule):
 
         return sampled_pharms
     
-    def sample(self,  ref_graphs: List[dgl.DGLHeteroGraph], n_pharm_feats: List[List[int]], diff_batch_size: int = 32, use_ref_pharm_com: bool = False, visualize_trajectory: bool=False):
+    def sample(self,  ref_graphs: List[dgl.DGLHeteroGraph], n_pharms: List[List[int]], max_batch_size: int = 32, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool=False):
+        """Samples pharmacophores for multiple receptors, allowing complete specification of the number of pharmacophores to sample for each pocket and the number of centers in each pharmacophore.
 
-        device = ref_graphs[0].device
+        Args:
+            ref_graphs (List[dgl.DGLHeteroGraph]): List of DGL graphs containing the receptor structures.
+            n_pharm (List[List[int]]): List of lists of integers containing the number of pharmacophore centers in each sampled pharmacophore for each receptor.
+            max_batch_size (int, optional): Max batch size for sampling. Defaults to 32.
+            init_pharm_com (torch.Tensor, optional): Tensor of shape (n_ref_graphs, 3) containing the initial pharmacophore COM for each receptor. Defaults to None. If None, the COM of the receptor will be used.
+            visualize_trajectory (bool, optional): Whether to record each frame of the denoising process and return the trajectories. Defaults to False.
+
+        Returns:
+            List[List[SampledPharmacophore]]: A list of lists. Each sublist contains the sampled pharmacophores for a single receptor.
+        """
         n_receptors = len(ref_graphs)
 
-        ref_graphs_batched = dgl.batch(ref_graphs)
-        graphs=[]
+        if init_pharm_com is None:
+            rec_coms = []
+            for g in ref_graphs:
+                rec_coms.append(g.nodes['prot'].data['x_0'].mean(dim=0))
+            init_pharm_com = torch.stack(rec_coms, dim=0)
 
-        for rec_idx, ref_graph in enumerate(dgl.unbatch(ref_graphs_batched)):
-            n_pharm_feats_rec = n_pharm_feats[rec_idx]
-            g_copies=copy_graph(ref_graph,n_copies=len(n_pharm_feats_rec),pharm_feats_per_copy=torch.tensor(n_pharm_feats_rec))
+        # ref_graphs_batched = dgl.batch(ref_graphs)
+        graphs = []
+        graph_ref_idx = [] # the index of the referece graph that each graph in graphs was built from
+        for rec_idx, ref_graph in enumerate(ref_graphs):
+            n_pharms_rec = n_pharms[rec_idx]
+            g_copies=copy_graph(ref_graph, n_copies=len(n_pharms_rec), pharm_feats_per_copy=torch.tensor(n_pharms_rec))
             graphs.extend(g_copies)
+            graph_ref_idx.extend([rec_idx]*len(n_pharms_rec))
         
         #proceed to batched sampling
-
         n_complexes=len(graphs)
         n_complexes_sampled=0
-
-        pharm_pos, pharm_feat=[],[]
-
-        for batch_idx in range(ceil(n_complexes/diff_batch_size)):
+        sampled_pharms = []
+        for batch_idx in range(ceil(n_complexes/max_batch_size)):
 
             #number of complexes present in batch
-            n_samples_batch=min(diff_batch_size,n_complexes-n_complexes_sampled)
-            start_idx=batch_idx*diff_batch_size
-            end_idx=start_idx+n_samples_batch
-            batch_graphs=dgl.batch(graphs[start_idx:end_idx])
-            if use_ref_pharm_com:
-                init_pharm_com=dgl.readout_nodes(ref_graphs_batched,feat='x_0',ntype='pharm',op='mean')
-            else:
-                init_pharm_com=None
+            n_samples_batch = min(max_batch_size,n_complexes-n_complexes_sampled)
+            start_idx = batch_idx*max_batch_size
+            end_idx = start_idx+n_samples_batch
+            batch_graphs = dgl.batch(graphs[start_idx:end_idx])
+
+            init_coms = init_pharm_com[graph_ref_idx[start_idx:end_idx]]
+
+            # move data to same device as model
+            batch_graphs = batch_graphs.to(self.device)
+            init_coms = init_coms.to(self.device)
             
-            batch_pharm_pos, batch_pharm_feat = self.sample_given_receptor(batch_graphs, init_pharm_com=init_pharm_com, visualize_trajectory=visualize_trajectory)
-            pharm_pos.extend(batch_pharm_pos)
-            pharm_feat.extend(batch_pharm_feat)
+            # sample pharmacophores
+            batch_pharms = self.sample_given_receptor(batch_graphs, init_pharm_com=init_coms, visualize_trajectory=visualize_trajectory)
+            sampled_pharms.extend(batch_pharms)
 
-            n_complexes_sampled+=n_samples_batch
+            n_complexes_sampled += n_samples_batch
 
-        samples=[]
+        per_pocket_samples = []
         end_idx=0
         for rec_idx in range(n_receptors):
-            n_pharmacophores=len(n_pharm_feats[rec_idx])
-            start_idx=end_idx
-            end_idx=start_idx+n_pharmacophores
-            samples.append({'positions': pharm_pos[start_idx:end_idx],'features': pharm_feat[start_idx:end_idx]})
+            n_pharmacophores=len(n_pharms[rec_idx])
+            start_idx = end_idx
+            end_idx = start_idx+n_pharmacophores
+            per_pocket_samples.append(sampled_pharms[start_idx:end_idx])
         
-        return samples
+        return per_pocket_samples
 
 
 # noise schedules are taken from DiffSBDD: https://github.com/arneschneuing/DiffSBDD
