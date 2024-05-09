@@ -3,6 +3,7 @@ data/crossdocked_processed
 data/crossdocked_processed_dev
 data/crossdocked_raw
 .vscode/
+samples/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

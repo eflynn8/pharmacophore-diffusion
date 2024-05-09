@@ -22,30 +22,40 @@ if args.load_reference:
 #load the pocket file
 cmd.load(str(parent_dir / 'pocket.pdb'), 'pocket')
 
+# find all xyz files in the directory - these are generated pharmacophores
+ph_files = [file for file in parent_dir.glob('*.xyz')]
+ph_pymol_names = [file.stem for file in ph_files] # names of pharmacophores once loaded into pymol
+all_ph_sel_str = ' or '.join(ph_pymol_names)
+
+
 #load the pharmacophores
-for file in sorted(parent_dir.iterdir()):
-    if file.suffix == '.xyz':
-        cmd.load(str(file), file.stem)
-        pharmacophore_file=file.stem
-        break
+for ph_file, ph_pymol_name in zip(ph_files, ph_pymol_names):
+    cmd.load(str(ph_file))
+    cmd.unbond(ph_pymol_name, ph_pymol_name) # remove all bonds between atoms in the pharmacophore
+    cmd.show_as('spheres', ph_pymol_name) # show the pharmacophore as spheres
 
-#avoid bond inference on loading pharmacophores
-cmd.show_as('spheres',pharmacophore_file)
+# set the sphere scale for all pharmacophores
+cmd.set('sphere_scale', 0.4, all_ph_sel_str)
+
     
-#create seperate trajectories with the following of certain atom types present in the xyz files
-cmd.select('PositiveIon', 'elem N and '+ pharmacophore_file )
-cmd.create('PositiveIon', 'PositiveIon')
-cmd.select('Hydrophobic', 'elem C and ' + pharmacophore_file )
-cmd.create('Hydrophobic', 'Hydrophobic')
-cmd.select('NegativeIon', 'elem O and ' + pharmacophore_file)
-cmd.create('NegativeIon', 'NegativeIon')
-cmd.select('Aromatic', 'elem P and ' + pharmacophore_file)
-cmd.create('Aromatic', 'Aromatic')
-cmd.select('HydrogenAcceptor', 'elem F and ' + pharmacophore_file)
-cmd.create('HydrogenAcceptor', 'HydrogenAcceptor')
-cmd.select('HydrogenDonor', 'elem S and ' + pharmacophore_file)
-cmd.create('HydrogenDonor', 'HydrogenDonor')
+# create selections for each pharmacophore type
+cmd.select('PositiveIon', f'elem N and ({all_ph_sel_str})' )
+cmd.select('Hydrophobic', f'elem C and ({all_ph_sel_str})' )
+cmd.select('NegativeIon', f'elem O and ({all_ph_sel_str})')
+cmd.select('Aromatic', f'elem P and ({all_ph_sel_str})')
+cmd.select('HydrogenAcceptor', f'elem F and ({all_ph_sel_str})')
+cmd.select('HydrogenDonor', f'elem S and ({all_ph_sel_str})')
 
-#avoid ultra large spheres
-select_string=' or '.join([pharmacophore_file,'PositiveIon','Hydrophobic','NegativeIon','Aromatic','HydrogenAcceptor','HydrogenDonor'])
-cmd.set('sphere_scale',0.2,select_string)
+
+pymol_color_map = {
+    'Aromatic': 'purple',
+    'Hydrophobic': 'green',
+    'HydrogenAcceptor': 'orange',
+    'HydrogenDonor': 'white',
+    'PositiveIon': 'blue',
+    'NegativeIon': 'red',
+}
+
+# color the pharmacophores
+for ph_type, color in pymol_color_map.items():
+    cmd.color(color, ph_type)
