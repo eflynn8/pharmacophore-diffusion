@@ -29,7 +29,7 @@ class SampleAnalyzer:
             valid_denominator += n_ph_nodes
 
         metrics = {
-            'validity': valid_numerator / valid_denominator
+            'validity': (valid_numerator / valid_denominator).item()
         }
         return metrics
 

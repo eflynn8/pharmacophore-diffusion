@@ -3,12 +3,14 @@ from pathlib import Path
 from dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
 from dataset.protein_pharmacophore_datamodule import CrossdockedDataModule
 
-def model_from_config(config: dict) -> PharmacophoreDiff:
+def model_from_config(config: dict, ckpt=None) -> PharmacophoreDiff:
 
 
     # get the number of receptor atom features, ligand atom features, and keypoint features
     n_rec_feat = len(config['dataset']['prot_elements'])
     n_ph_types = len(config['dataset']['ph_type_map'])
+
+    eval_config = config['training']['evaluation']
 
 
     model = PharmacophoreDiff(
@@ -16,7 +18,9 @@ def model_from_config(config: dict) -> PharmacophoreDiff:
         rec_nf=n_rec_feat,
         ph_type_map=config['dataset']['ph_type_map'],
         processed_data_dir=config['dataset']['processed_data_dir'],
-        eval_config=config['training']['evaluation'],
+        n_pockets_to_sample=eval_config['n_pockets'],
+        pharms_per_pocket=eval_config['pharms_per_pocket'],
+        sample_interval=eval_config['sample_interval'],
         graph_config=config['graph'],
         dynamics_config=config['dynamics'],
         lr_scheduler_config=config['lr_scheduler'],

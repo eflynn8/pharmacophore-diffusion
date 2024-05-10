@@ -13,6 +13,7 @@ from models.pharmacodiff import PharmacophoreDiff
 from config_utils.load_from_config import model_from_config, data_module_from_config
 from dataset.receptor_utils import write_pocket_file
 from analysis.pharm_builder import SampledPharmacophore
+from analysis.metrics import SampleAnalyzer
 from utils import write_pharmacophore_file, copy_graph
 
 def parse_arguments():
@@ -32,6 +33,8 @@ def parse_arguments():
     p.add_argument('--split', type=str, default='val')
     p.add_argument('--use_ref_pharm_com', action='store_true',help="Initialize each pharmacophore's position at the reference pharmacophore's center of mass" )
     p.add_argument('--visualize_trajectory', action='store_true',help="Visualize trajectories of generated pharmacophores" )
+
+    p.add_argument('--metrics', action='store_true', help='compute metrics on generated pharmacophores')
     
     args = p.parse_args()
 
@@ -107,6 +110,8 @@ def main():
     else:
         dataset_iterator = trange(args.dataset_idx, args.dataset_idx+1)
 
+
+    all_pharms = []
     for dataset_idx in dataset_iterator:
 
         pocket_sample_start = time.time()
@@ -155,6 +160,9 @@ def main():
         pocket_dir = pharm_dir / f'pocket_{dataset_idx}'
         pocket_dir.mkdir(exist_ok=True)
 
+        # add sampled pharms to list of all pharms
+        all_pharms.extend(sampled_pharms)
+
         # save pocket sample time
         with open(pocket_dir / 'sample_time.txt', 'w') as f:
             f.write(f'{pocket_sample_time:.2f}')
@@ -196,6 +204,16 @@ def main():
                 pharm_file_content += sampled_pharm.to_xyz_file()
             with open(pharm_file, 'w') as f:
                 f.write(pharm_file_content)
+
+    # compute metrics if requested
+    if args.metrics:
+        metrics = SampleAnalyzer().analyze(all_pharms)
+        print(metrics)
+        with open(output_dir / 'metrics.txt', 'w') as f:
+            metrics_strs = [ f'{k}: {v:.3f}' for k,v in metrics.items() ]
+            f.write('\n'.join(metrics_strs))
+        with open(output_dir / 'metrics.pkl', 'wb') as f:
+            pickle.dump(metrics, f)
 
 if __name__ == '__main__':
     main()

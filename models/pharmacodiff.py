@@ -33,7 +33,9 @@ class PharmacophoreDiff(pl.LightningModule):
         graph_config={}, 
         dynamics_config = {}, 
         lr_scheduler_config = {}, 
-        eval_config = {},
+        sample_interval: float = 1,
+        pharms_per_pocket: int = 8,
+        n_pockets_to_sample: int = 8,
         precision=1e-4, 
         pharm_feat_norm_constant=1, 
         endpoint_param_feat: bool = False, 
@@ -60,10 +62,10 @@ class PharmacophoreDiff(pl.LightningModule):
 
         self.lr_scheduler_config = lr_scheduler_config
         
-        # unpack eval config
-        self.sample_interval = eval_config['sample_interval'] # how often to sample, in epochs
-        self.pharms_per_pocket = eval_config['pharms_per_pocket'] # how many pharmacophores to sample per pocket
-        self.n_pockets_to_sample = eval_config['n_pockets'] # how many pockets to sample from
+        # set parameters for training-time sampling
+        self.sample_interval = sample_interval # how often to sample, in epochs
+        self.pharms_per_pocket = pharms_per_pocket # how many pharmacophores to sample per pocket
+        self.n_pockets_to_sample = n_pockets_to_sample # how many pockets to sample from
         self.last_sample_marker = 0 # marker for last time we sampled
         self.last_epoch_exact = 0
 
@@ -304,7 +306,7 @@ class PharmacophoreDiff(pl.LightningModule):
         val_dataset = self.trainer.datamodule.val_dataset
 
         # randomly choose self.n_pockets integers between 0 and len(val_dataset) without replacement
-        pocket_idxs = torch.randint(low=0, high=len(val_dataset), size=(self.n_pockets_to_sample))
+        pocket_idxs = torch.randint(low=0, high=len(val_dataset), size=(self.n_pockets_to_sample,))
 
         # get the actual pockets as dgl graphs
         pockets = [val_dataset[int(i)] for i in pocket_idxs]
@@ -325,8 +327,15 @@ class PharmacophoreDiff(pl.LightningModule):
 
         self.train()
 
+
+        # sampled pharms is a list of lists. each sublist contains the sampled pharmacophores for a single receptor. we need to flatten this list
+        # for passage to the analysis function
+        flat_pharms = []
+        for pocket_pharms in sampled_pharms:
+            flat_pharms.extend(pocket_pharms)
+
         # compute metrics on sampled pharmacophores
-        metrics = SampleAnalyzer().analyze(sampled_pharms)
+        metrics = SampleAnalyzer().analyze(flat_pharms)
 
         return metrics
         

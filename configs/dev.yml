@@ -12,10 +12,10 @@ training:
     limit_val_batches: 1.0
 
   evaluation:
-    pharms_per_pocket: 8
+    pharms_per_pocket: 2
     n_pockets: 8
-    sample_interval: 1.0 # how often to sample molecules during training, measured in epochs
-    val_loss_interval: 0.5 # how often to compute validation set loss during training, measured in epochs
+    sample_interval: 0.5 # how often to sample molecules during training, measured in epochs
+    val_loss_interval: 0.8 # how often to compute validation set loss during training, measured in epochs
 
 lr_scheduler:
   # to turn off warmup and restarts, set both warmup_length and restart_interval to 0
@@ -45,7 +45,7 @@ wandb:
   project: pharm-gen
   group: "dev"
   name: "dev run"
-  mode: online # can be disabled, online, offline
+  mode: disabled # can be disabled, online, offline
 
 dataset:
   # TODO: no dataset class actually accesses this information
