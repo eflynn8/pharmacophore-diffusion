@@ -75,6 +75,7 @@ diffusion:
   endpoint_param_feat: False
   endpoint_param_coord: False
   weighted_loss: False
+  remove_com: True
 
 dynamics:
   vector_size: 16

@@ -12,6 +12,10 @@ def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.Argumen
     diff_group.add_argument('--precision', type=float, default=None)
     diff_group.add_argument('--feat_norm_constant', type=float, default=None)
     diff_group.add_argument('--pf_dist_threshold', type=float, default=None, help='distance threshold for protein-pharmacophore loss function')
+    diff_group.add_argument('--remove_com', type=bool, default=None)
+    diff_group.add_argument('--endpoint_param_feat', type=bool, default=None)
+    diff_group.add_argument('--endpoint_param_coord', type=bool, default=None)
+    diff_group.add_argument('--n_timesteps', type=int, default=None)
 
     dynamics_group = p.add_argument_group('dynamics')
     dynamics_group.add_argument('--vector_size', type=int, default=None)
@@ -37,6 +41,7 @@ def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.Argumen
     p.add_argument('--ff_cutoff', type=float, default=None)
     p.add_argument('--pf_cutoff', type=float, default=None)
     p.add_argument('--pp_cutoff', type=float, default=None)
+    p.add_argument('--fp_cutoff', type=float, default=None)
     p.add_argument('--ff_k', type=int, default=None)
     p.add_argument('--pf_k', type=int, default=None)
     p.add_argument('--pp_k', type=int, default=None)
@@ -69,7 +74,7 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
         if args_dict[arg_name] is not None:
             config[dynamics_key][arg_name] = args_dict[arg_name]
     
-    for etype in ['ff', 'pp', 'pf']:
+    for etype in ['ff', 'pp', 'pf', 'fp']:
         if args_dict[f'{etype}_cutoff'] is not None:
             config['graph']['graph_cutoffs'][etype] = args_dict[f'{etype}_cutoff']
     
@@ -105,6 +110,18 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
 
     if args.pf_dist_threshold is not None:
         config['diffusion']['pf_dist_threshold'] = args.pf_dist_threshold
+    
+    if args.remove_com is not None:
+        config['diffusion']['remove_com'] = args.remove_com
+    
+    if args.endpoint_param_feat is not None:
+        config['diffusion']['endpoint_param_feat'] = args.endpoint_param_feat
+    
+    if args.endpoint_param_coord is not None:
+        config['diffusion']['endpoint_param_coord'] = args.endpoint_param_coord
+    
+    if args.n_timesteps is not None:
+        config['diffusion']['n_timesteps'] = args.n_timesteps
 
     if args.message_norm is not None:
 

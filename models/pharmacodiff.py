@@ -40,13 +40,15 @@ class PharmacophoreDiff(pl.LightningModule):
         pharm_feat_norm_constant=1, 
         endpoint_param_feat: bool = False, 
         endpoint_param_coord: bool = False, 
-        weighted_loss: bool = False, 
+        weighted_loss: bool = False,
+        remove_com: bool = True, 
         **kwargs):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
         self.ph_type_map = ph_type_map
         self.n_timesteps = n_timesteps
+        self.remove_com = remove_com
         self.pharm_feat_norm_constant = pharm_feat_norm_constant
         self.endpoint_param_feat = endpoint_param_feat
         self.endpoint_param_coord = endpoint_param_coord
@@ -79,7 +81,7 @@ class PharmacophoreDiff(pl.LightningModule):
         protpharm_graphs.nodes['pharm'].data['h_0'] = protpharm_graphs.nodes['pharm'].data['h_0'] * self.pharm_feat_norm_constant
         return protpharm_graphs
     
-    def remove_com(self, protpharm_graphs, pharm_batch_idx, prot_batch_idx, com: str = None, pharm_feat='x_t'):
+    def com_removal(self, protpharm_graphs, pharm_batch_idx, prot_batch_idx, com: str = None, pharm_feat='x_t'):
         """Remove center of mass from ligand atom positions and receptor keypoint positions.
 
         This method can remove either the ligand COM, receptor keypoint COM or the complex COM.
@@ -112,8 +114,11 @@ class PharmacophoreDiff(pl.LightningModule):
         g.nodes['pharm'].data['h_t'] = alpha_t*g.nodes['pharm'].data['h_0'] + sigma_t*eps['h']
         
         # sampled_com = dgl.readout_nodes(g, feat='x_0', ntype='pharm', op='mean')
-        # remove pharmacophore COM from the system
-        # g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+
+
+        # remove pharmacophore COM from the system if remove_com is True
+        if self.remove_com:
+            g = self.com_removal(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
         
         if return_com:
             raise NotImplementedError('i dont think we need to do this so im making it an error for now')
@@ -171,7 +176,7 @@ class PharmacophoreDiff(pl.LightningModule):
         batch_idxs = get_batch_idxs(g)
         
         # remove pharmacophore COM from protein-pharmacophore graph
-        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
+        g = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
         # sample timepoints for each item in the batch
         t = torch.randint(0, self.n_timesteps, size=(batch_size,), device=device).float() # timesteps
@@ -405,7 +410,7 @@ class PharmacophoreDiff(pl.LightningModule):
         g.nodes['pharm'].data['h_t'] = mu_feat + sigma*feat_noise
 
         #remove pharmacophore COM from system
-        g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+        g = self.com_removal(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
 
         return g
 
@@ -459,7 +464,7 @@ class PharmacophoreDiff(pl.LightningModule):
         for feat in 'xh':
             g.nodes['pharm'].data[f'{feat}_0'] = g.nodes['pharm'].data[f'{feat}_t']
             
-        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
+        g = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
 
         for n_type in ['pharm', 'prot']:
             g.nodes[n_type].data['x_0'] = g.nodes[n_type].data['x_0'] + init_prot_com[batch_idxs[n_type]]
