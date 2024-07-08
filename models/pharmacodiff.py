@@ -34,6 +34,7 @@ class PharmacophoreDiff(pl.LightningModule):
         dynamics_config = {}, 
         lr_scheduler_config = {}, 
         sample_interval: float = 1,
+        val_loss_interval: float = 1,
         pharms_per_pocket: int = 8,
         n_pockets_to_sample: int = 8,
         precision=1e-4, 
@@ -70,6 +71,7 @@ class PharmacophoreDiff(pl.LightningModule):
         self.n_pockets_to_sample = n_pockets_to_sample # how many pockets to sample from
         self.last_sample_marker = 0 # marker for last time we sampled
         self.last_epoch_exact = 0
+        self.val_loss_interval = val_loss_interval # how often to calculate val total loss
 
         self.save_hyperparameters()
     
@@ -175,6 +177,9 @@ class PharmacophoreDiff(pl.LightningModule):
 
         batch_idxs = get_batch_idxs(g)
         
+        # make clean graph copy for metrics and endpoint prediction
+        g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
+
         # remove pharmacophore COM from protein-pharmacophore graph
         g = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
@@ -240,12 +245,19 @@ class PharmacophoreDiff(pl.LightningModule):
     def num_training_batches(self):
         return len(self.trainer.train_dataloader)
     
+    def num_training_steps(self):
+        return len(self.trainer.datamodule.train_dataset)
+    
+    def set_lr_scheduler_frequency(self):
+        self.lr_scheduler_config['frequency'] = int(self.num_training_steps() * self.val_loss_interval) + 1
+    
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), 
                                lr=self.lr_scheduler_config['base_lr'],
                                weight_decay=self.lr_scheduler_config['weight_decay']
         )
         scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
+        self.set_lr_scheduler_frequency()
 
         # self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
         return {'optimizer': optimizer, 'lr_scheduler': {"scheduler":scheduler,"monitor": self.lr_scheduler_config['monitor'], "interval": self.lr_scheduler_config['interval'], "frequency": self.lr_scheduler_config['frequency']}}
@@ -384,9 +396,17 @@ class PharmacophoreDiff(pl.LightningModule):
 
         var_terms = sigma2_t_given_s / alpha_t_given_s / sigma_t
 
+        #compute sigma for p(zs|zt)
+        sigma = sigma_t_given_s * sigma_s/sigma_t
+        sigma = sigma[pharm_batch_idx].view(-1, 1)
+
         #expand distribution parameters by batch assignment for every pharmacophore feature
         alpha_t_given_s = alpha_t_given_s[pharm_batch_idx].view(-1, 1)
         var_terms = var_terms[pharm_batch_idx].view(-1, 1)
+        sigma_s = sigma_s[pharm_batch_idx].view(-1, 1)
+        sigma_t = sigma_t[pharm_batch_idx].view(-1, 1)
+        alpha_s = alpha_s[pharm_batch_idx].view(-1, 1)
+        sigma2_t_given_s = sigma2_t_given_s[pharm_batch_idx].view(-1, 1)
 
         #TODO: check this math lol
         #compute the mean (mu) for positions/features of the distribution p(z_s | z_t)
@@ -398,10 +418,6 @@ class PharmacophoreDiff(pl.LightningModule):
             mu_feat = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['h_t'] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_h
         else:
             mu_feat = g.nodes['pharm'].data['h_t'] /alpha_t_given_s - var_terms*pred_h
-
-        #compute sigma for p(zs|zt)
-        sigma = sigma_t_given_s * sigma_s/sigma_t
-        sigma = sigma[pharm_batch_idx].view(-1, 1)
 
         # sample zs given the mu and sigma we just computed
         pos_noise = torch.randn(g.nodes['pharm'].data['x_t'].shape, device=device)
