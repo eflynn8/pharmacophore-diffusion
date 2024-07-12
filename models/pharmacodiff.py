@@ -240,7 +240,6 @@ class PharmacophoreDiff(pl.LightningModule):
             metrics[phase + ' weighted accuracy'] = (weight_metric*(h_0_pred == g.nodes['pharm'].data['h_0'].argmax(dim=1)).float()).mean()
             # if 'prot_ph' in g.ntypes:
             #     prot_ph_batch_idx = batch_idxs['prot_ph']
-            #     print(g_copy.nodes['prot_ph'].data['x_0'].shape,g_copy.nodes['prot_ph'].data['h_0'].shape)
         
         return losses, metrics
     
@@ -248,7 +247,6 @@ class PharmacophoreDiff(pl.LightningModule):
         return len(self.trainer.train_dataloader)
     
     def num_training_steps(self):
-        print("Num Training Steps: ", ceil(len(self.trainer.datamodule.train_dataset) / self.batch_size))
         return ceil(len(self.trainer.datamodule.train_dataset) / self.batch_size)
     
     def set_lr_scheduler_frequency(self):
@@ -300,7 +298,6 @@ class PharmacophoreDiff(pl.LightningModule):
         return loss_dict[phase+' total loss']
     
     def validation_step(self, batch, batch_idx):
-        print("Performing the Validation Step!!!")
         protpharm_graphs = batch
         phase='val'
 
@@ -656,16 +653,12 @@ class PredefinedNoiseSchedule(nn.Module):
         else:
             raise ValueError(noise_schedule)
 
-        # print('alphas2', alphas2)
-
         sigmas2 = 1 - alphas2
 
         log_alphas2 = np.log(alphas2)
         log_sigmas2 = np.log(sigmas2)
 
         log_alphas2_to_sigmas2 = log_alphas2 - log_sigmas2
-
-        # print('gamma', -log_alphas2_to_sigmas2)
 
         self.gamma = torch.nn.Parameter(
             torch.from_numpy(-log_alphas2_to_sigmas2).float(),
