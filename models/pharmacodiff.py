@@ -35,6 +35,7 @@ class PharmacophoreDiff(pl.LightningModule):
         lr_scheduler_config = {}, 
         sample_interval: float = 1,
         val_loss_interval: float = 1,
+        batch_size: int = 64,
         pharms_per_pocket: int = 8,
         n_pockets_to_sample: int = 8,
         precision=1e-4, 
@@ -47,6 +48,7 @@ class PharmacophoreDiff(pl.LightningModule):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
+        self.batch_size = batch_size
         self.ph_type_map = ph_type_map
         self.n_timesteps = n_timesteps
         self.remove_com = remove_com
@@ -246,7 +248,8 @@ class PharmacophoreDiff(pl.LightningModule):
         return len(self.trainer.train_dataloader)
     
     def num_training_steps(self):
-        return len(self.trainer.datamodule.train_dataset)
+        print("Num Training Steps: ", ceil(len(self.trainer.datamodule.train_dataset) / self.batch_size))
+        return ceil(len(self.trainer.datamodule.train_dataset) / self.batch_size)
     
     def set_lr_scheduler_frequency(self):
         self.lr_scheduler_config['frequency'] = int(self.num_training_steps() * self.val_loss_interval) + 1
@@ -297,6 +300,7 @@ class PharmacophoreDiff(pl.LightningModule):
         return loss_dict[phase+' total loss']
     
     def validation_step(self, batch, batch_idx):
+        print("Performing the Validation Step!!!")
         protpharm_graphs = batch
         phase='val'
 

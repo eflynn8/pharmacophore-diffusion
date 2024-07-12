@@ -22,6 +22,7 @@ def model_from_config(config: dict, ckpt=None) -> PharmacophoreDiff:
         pharms_per_pocket=eval_config['pharms_per_pocket'],
         sample_interval=eval_config['sample_interval'],
         val_loss_interval=eval_config['val_loss_interval'],
+        batch_size=config['training']['batch_size'],
         graph_config=config['graph'],
         dynamics_config=config['dynamics'],
         lr_scheduler_config=config['lr_scheduler'],
