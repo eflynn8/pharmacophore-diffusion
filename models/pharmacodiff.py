@@ -34,19 +34,24 @@ class PharmacophoreDiff(pl.LightningModule):
         dynamics_config = {}, 
         lr_scheduler_config = {}, 
         sample_interval: float = 1,
+        val_loss_interval: float = 1,
+        batch_size: int = 64,
         pharms_per_pocket: int = 8,
         n_pockets_to_sample: int = 8,
         precision=1e-4, 
         pharm_feat_norm_constant=1, 
         endpoint_param_feat: bool = False, 
         endpoint_param_coord: bool = False, 
-        weighted_loss: bool = False, 
+        weighted_loss: bool = False,
+        remove_com: bool = True, 
         **kwargs):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
+        self.batch_size = batch_size
         self.ph_type_map = ph_type_map
         self.n_timesteps = n_timesteps
+        self.remove_com = remove_com
         self.pharm_feat_norm_constant = pharm_feat_norm_constant
         self.endpoint_param_feat = endpoint_param_feat
         self.endpoint_param_coord = endpoint_param_coord
@@ -68,6 +73,7 @@ class PharmacophoreDiff(pl.LightningModule):
         self.n_pockets_to_sample = n_pockets_to_sample # how many pockets to sample from
         self.last_sample_marker = 0 # marker for last time we sampled
         self.last_epoch_exact = 0
+        self.val_loss_interval = val_loss_interval # how often to calculate val total loss
 
         self.save_hyperparameters()
     
@@ -79,7 +85,7 @@ class PharmacophoreDiff(pl.LightningModule):
         protpharm_graphs.nodes['pharm'].data['h_0'] = protpharm_graphs.nodes['pharm'].data['h_0'] * self.pharm_feat_norm_constant
         return protpharm_graphs
     
-    def remove_com(self, protpharm_graphs, pharm_batch_idx, prot_batch_idx, com: str = None, pharm_feat='x_t'):
+    def com_removal(self, protpharm_graphs, pharm_batch_idx, prot_batch_idx, com: str = None, pharm_feat='x_t'):
         """Remove center of mass from ligand atom positions and receptor keypoint positions.
 
         This method can remove either the ligand COM, receptor keypoint COM or the complex COM.
@@ -112,8 +118,11 @@ class PharmacophoreDiff(pl.LightningModule):
         g.nodes['pharm'].data['h_t'] = alpha_t*g.nodes['pharm'].data['h_0'] + sigma_t*eps['h']
         
         # sampled_com = dgl.readout_nodes(g, feat='x_0', ntype='pharm', op='mean')
-        # remove pharmacophore COM from the system
-        # g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+
+
+        # remove pharmacophore COM from the system if remove_com is True
+        if self.remove_com:
+            g = self.com_removal(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
         
         if return_com:
             raise NotImplementedError('i dont think we need to do this so im making it an error for now')
@@ -170,8 +179,11 @@ class PharmacophoreDiff(pl.LightningModule):
 
         batch_idxs = get_batch_idxs(g)
         
+        # make clean graph copy for metrics and endpoint prediction
+        g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
+
         # remove pharmacophore COM from protein-pharmacophore graph
-        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
+        g = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
         # sample timepoints for each item in the batch
         t = torch.randint(0, self.n_timesteps, size=(batch_size,), device=device).float() # timesteps
@@ -228,12 +240,17 @@ class PharmacophoreDiff(pl.LightningModule):
             metrics[phase + ' weighted accuracy'] = (weight_metric*(h_0_pred == g.nodes['pharm'].data['h_0'].argmax(dim=1)).float()).mean()
             # if 'prot_ph' in g.ntypes:
             #     prot_ph_batch_idx = batch_idxs['prot_ph']
-            #     print(g_copy.nodes['prot_ph'].data['x_0'].shape,g_copy.nodes['prot_ph'].data['h_0'].shape)
         
         return losses, metrics
     
     def num_training_batches(self):
         return len(self.trainer.train_dataloader)
+    
+    def num_training_steps(self):
+        return ceil(len(self.trainer.datamodule.train_dataset) / self.batch_size)
+    
+    def set_lr_scheduler_frequency(self):
+        self.lr_scheduler_config['frequency'] = int(self.num_training_steps() * self.val_loss_interval) + 1
     
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), 
@@ -241,6 +258,7 @@ class PharmacophoreDiff(pl.LightningModule):
                                weight_decay=self.lr_scheduler_config['weight_decay']
         )
         scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
+        self.set_lr_scheduler_frequency()
 
         # self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
         return {'optimizer': optimizer, 'lr_scheduler': {"scheduler":scheduler,"monitor": self.lr_scheduler_config['monitor'], "interval": self.lr_scheduler_config['interval'], "frequency": self.lr_scheduler_config['frequency']}}
@@ -379,9 +397,17 @@ class PharmacophoreDiff(pl.LightningModule):
 
         var_terms = sigma2_t_given_s / alpha_t_given_s / sigma_t
 
+        #compute sigma for p(zs|zt)
+        sigma = sigma_t_given_s * sigma_s/sigma_t
+        sigma = sigma[pharm_batch_idx].view(-1, 1)
+
         #expand distribution parameters by batch assignment for every pharmacophore feature
         alpha_t_given_s = alpha_t_given_s[pharm_batch_idx].view(-1, 1)
         var_terms = var_terms[pharm_batch_idx].view(-1, 1)
+        sigma_s = sigma_s[pharm_batch_idx].view(-1, 1)
+        sigma_t = sigma_t[pharm_batch_idx].view(-1, 1)
+        alpha_s = alpha_s[pharm_batch_idx].view(-1, 1)
+        sigma2_t_given_s = sigma2_t_given_s[pharm_batch_idx].view(-1, 1)
 
         #TODO: check this math lol
         #compute the mean (mu) for positions/features of the distribution p(z_s | z_t)
@@ -394,10 +420,6 @@ class PharmacophoreDiff(pl.LightningModule):
         else:
             mu_feat = g.nodes['pharm'].data['h_t'] /alpha_t_given_s - var_terms*pred_h
 
-        #compute sigma for p(zs|zt)
-        sigma = sigma_t_given_s * sigma_s/sigma_t
-        sigma = sigma[pharm_batch_idx].view(-1, 1)
-
         # sample zs given the mu and sigma we just computed
         pos_noise = torch.randn(g.nodes['pharm'].data['x_t'].shape, device=device)
         feat_noise = torch.randn(g.nodes['pharm'].data['h_t'].shape, device=device)
@@ -405,7 +427,7 @@ class PharmacophoreDiff(pl.LightningModule):
         g.nodes['pharm'].data['h_t'] = mu_feat + sigma*feat_noise
 
         #remove pharmacophore COM from system
-        g = self.remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+        g = self.com_removal(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
 
         return g
 
@@ -459,7 +481,7 @@ class PharmacophoreDiff(pl.LightningModule):
         for feat in 'xh':
             g.nodes['pharm'].data[f'{feat}_0'] = g.nodes['pharm'].data[f'{feat}_t']
             
-        g = self.remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
+        g = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
 
         for n_type in ['pharm', 'prot']:
             g.nodes[n_type].data['x_0'] = g.nodes[n_type].data['x_0'] + init_prot_com[batch_idxs[n_type]]
@@ -631,16 +653,12 @@ class PredefinedNoiseSchedule(nn.Module):
         else:
             raise ValueError(noise_schedule)
 
-        # print('alphas2', alphas2)
-
         sigmas2 = 1 - alphas2
 
         log_alphas2 = np.log(alphas2)
         log_sigmas2 = np.log(sigmas2)
 
         log_alphas2_to_sigmas2 = log_alphas2 - log_sigmas2
-
-        # print('gamma', -log_alphas2_to_sigmas2)
 
         self.gamma = torch.nn.Parameter(
             torch.from_numpy(-log_alphas2_to_sigmas2).float(),
