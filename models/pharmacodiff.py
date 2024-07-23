@@ -28,7 +28,8 @@ class PharmacophoreDiff(pl.LightningModule):
         pharm_nf, 
         rec_nf, 
         ph_type_map: List[str], 
-        processed_data_dir: Path, 
+        processed_data_dir: Path,
+        validation_split_idxs: List[int], 
         n_timesteps: int = 1000, 
         graph_config={}, 
         dynamics_config = {}, 
@@ -58,7 +59,7 @@ class PharmacophoreDiff(pl.LightningModule):
         self.weighted_loss = weighted_loss
 
         #TODO implement obtaining the pharmacophore size distribution from the dataset
-        self.pharm_size_dist = PharmSizeDistribution(processed_data_dir)
+        self.pharm_size_dist = PharmSizeDistribution(processed_data_dir, validation_split_idxs)
 
         # create noise schedule and dynamics model
         self.gamma = PredefinedNoiseSchedule(noise_schedule='polynomial_2', timesteps=n_timesteps, precision=precision)
@@ -434,7 +435,7 @@ class PharmacophoreDiff(pl.LightningModule):
     @torch.no_grad()
     def sample_given_receptor(self, g:dgl.DGLHeteroGraph, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool = False):
         #method to sample from one receptor with batch_size being the number of pharmacophores generated for the receptor and n_pharm_feats 
-        #being the number of pharmacophore features
+        #being the number of pharmacophore feature types
         
         device = g.device
         batch_size = g.batch_size
@@ -519,7 +520,7 @@ class PharmacophoreDiff(pl.LightningModule):
 
         Args:
             ref_graphs (List[dgl.DGLHeteroGraph]): List of DGL graphs containing the receptor structures.
-            n_pharm (List[List[int]]): List of lists of integers containing the number of pharmacophore centers in each sampled pharmacophore for each receptor.
+            n_pharms (List[List[int]]): List of lists of integers containing the number of pharmacophore centers in each sampled pharmacophore for each receptor.
             max_batch_size (int, optional): Max batch size for sampling. Defaults to 32.
             init_pharm_com (torch.Tensor, optional): Tensor of shape (n_ref_graphs, 3) containing the initial pharmacophore COM for each receptor. Defaults to None. If None, the COM of the receptor will be used.
             visualize_trajectory (bool, optional): Whether to record each frame of the denoising process and return the trajectories. Defaults to False.
@@ -537,7 +538,7 @@ class PharmacophoreDiff(pl.LightningModule):
 
         # ref_graphs_batched = dgl.batch(ref_graphs)
         graphs = []
-        graph_ref_idx = [] # the index of the referece graph that each graph in graphs was built from
+        graph_ref_idx = [] # the index of the reference graph that each graph in graphs was built from
         for rec_idx, ref_graph in enumerate(ref_graphs):
             n_pharms_rec = n_pharms[rec_idx]
             g_copies=copy_graph(ref_graph, n_copies=len(n_pharms_rec), pharm_feats_per_copy=torch.tensor(n_pharms_rec))

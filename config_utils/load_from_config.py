@@ -18,6 +18,7 @@ def model_from_config(config: dict, ckpt=None) -> PharmacophoreDiff:
         rec_nf=n_rec_feat,
         ph_type_map=config['dataset']['ph_type_map'],
         processed_data_dir=config['dataset']['processed_data_dir'],
+        validation_split_idxs = config['training']['validation_splits'],
         n_pockets_to_sample=eval_config['n_pockets'],
         pharms_per_pocket=eval_config['pharms_per_pocket'],
         sample_interval=eval_config['sample_interval'],
