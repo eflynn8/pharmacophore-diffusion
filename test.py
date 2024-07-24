@@ -1,6 +1,7 @@
 import argparse
 import time
 import yaml
+import matplotlib.pyplot as plt
 from pathlib import Path
 import torch
 from rdkit import Chem
@@ -10,6 +11,7 @@ from tqdm import trange
 import dgl
 from models.pharmacodiff import PharmacophoreDiff
 
+from constants import ph_idx_to_type
 from config_utils.load_from_config import model_from_config, data_module_from_config
 from dataset.receptor_utils import write_pocket_file
 from analysis.pharm_builder import SampledPharmacophore
@@ -215,6 +217,13 @@ def main():
             f.write('\n'.join(metrics_strs))
         with open(output_dir / 'metrics.pkl', 'wb') as f:
             pickle.dump(metrics, f)
+        
+        freqs = SampleAnalyzer().pharm_feat_freq(all_pharms)
+        plt.bar(freqs, ph_idx_to_type)
+        plt.xlabel("Pharmacophore Feature")
+        plt.ylabel("Feature Frequency")
+        plt.savefig(output_dir / "pharm_freq_plot.png")
+
 
 if __name__ == '__main__':
     main()
