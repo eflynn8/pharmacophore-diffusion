@@ -137,7 +137,8 @@ def main():
             batch_size = min(n_pharmacophores_needed, args.max_batch_size)
 
             #collect just the batch_size graphs and init_pharm_coms that we need
-            g_batch = copy_graph(ref_graph, batch_size)
+            pharm_sizes = model.pharm_size_dist.sample_uniformly(args.samples_per_pocket)
+            g_batch = copy_graph(ref_graph, batch_size, pharm_feats_per_copy=pharm_sizes)
             g_batch = dgl.batch(g_batch)
 
             if args.use_ref_pharm_com:
