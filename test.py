@@ -220,8 +220,10 @@ def main():
         
         freqs = SampleAnalyzer().pharm_feat_freq(all_pharms)
         plt.bar(ph_idx_to_type, freqs)
+        plt.xticks(rotation=90)
         plt.xlabel("Pharmacophore Feature")
         plt.ylabel("Feature Frequency")
+        plt.tight_layout()
         plt.savefig(output_dir / "pharm_freq_plot.png")
 
 
