@@ -27,6 +27,7 @@ def register_hyperparameter_args(p: argparse.ArgumentParser) -> argparse.Argumen
     dynamics_group.add_argument('--dynamics_rec_enc_multiplier', type=int, default=None) 
 
     training_group = p.add_argument_group('training')
+    training_group.add_argument('--max_epochs', type=int, default=None, help='Max number of epochs to train model for')
     training_group.add_argument('--pf_hinge_loss_weight', type=float, default=None, help='weight applied to protein-pharmacophore hinge loss')
     training_group.add_argument('--lr', type=float, default=None, help='base learning rate')
     training_group.add_argument('--weight_decay', type=float, default=None)
@@ -101,6 +102,9 @@ def merge_config_and_args(config: dict, args: argparse.Namespace) -> dict:
 
     if args.batch_size is not None:
         config['training']['batch_size'] = args.batch_size
+    
+    if args.max_epochs is not None:
+        config['training']['trainer_args']['max_epochs'] = args.max_epochs
 
     if args.precision is not None:
         config['diffusion']['precision'] = args.precision
