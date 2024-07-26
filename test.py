@@ -32,9 +32,10 @@ def parse_arguments():
     p.add_argument('--max_tries', type=int, default=1, help='maximum number of batches to sample per pocket')
     p.add_argument('--dataset_size', type=int, default=None, help='truncate test dataset')
     p.add_argument('--dataset_idx', type=int, default=None)
+    p.add_argument('--dataset_idx_as_start', action='store_true', help="Use dataset idx as starting index and sample dataset size")
     p.add_argument('--split', type=str, default='val')
-    p.add_argument('--use_ref_pharm_com', action='store_true',help="Initialize each pharmacophore's position at the reference pharmacophore's center of mass" )
-    p.add_argument('--visualize_trajectory', action='store_true',help="Visualize trajectories of generated pharmacophores" )
+    p.add_argument('--use_ref_pharm_com', action='store_true', help="Initialize each pharmacophore's position at the reference pharmacophore's center of mass" )
+    p.add_argument('--visualize_trajectory', action='store_true', help="Visualize trajectories of generated pharmacophores" )
 
     p.add_argument('--metrics', action='store_true', help='compute metrics on generated pharmacophores')
     
@@ -109,6 +110,12 @@ def main():
         else:
             dataset_size = len(test_dataset)
         dataset_iterator = trange(dataset_size)
+    elif args.dataset_idx is not None and args.dataset_idx_as_start:
+        if args.dataset_size is not None:
+            dataset_size = args.dataset_size
+            dataset_iterator = trange(args.dataset_idx, args.dataset_idx + args.dataset_size + 1)
+        else:
+            raise ValueError('Must provide dataset size if dataset_idx_as_start is used')
     else:
         dataset_iterator = trange(args.dataset_idx, args.dataset_idx+1)
 
