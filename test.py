@@ -186,34 +186,34 @@ def main():
         print(f'Pocket {dataset_idx} sampling time per pharmacophore: {pocket_sample_time/len(sampled_pharms):.2f} seconds')
 
 
-        # # write the protein pocket file
-        # pocket_file = pocket_dir / 'pocket.pdb'
-        # write_pocket_file(ref_prot_file,ref_lig_rdmol, pocket_file,cutoff=config['dataset']['pocket_cutoff'])
+        # write the protein pocket file
+        pocket_file = pocket_dir / 'pocket.pdb'
+        write_pocket_file(ref_prot_file,ref_lig_rdmol, pocket_file,cutoff=config['dataset']['pocket_cutoff'])
 
-        # #save reference files
-        # ref_files_dir=pocket_dir / 'reference_files'
-        # ref_files_dir.mkdir(exist_ok=True)
-        # shutil.copy(ref_prot_file, ref_files_dir / ref_prot_file.name)
-        # sdfwriter = Chem.SDWriter(ref_files_dir / 'ligand.sdf')            
-        # sdfwriter.write(ref_lig_rdmol,confId=0)
+        #save reference files
+        ref_files_dir=pocket_dir / 'reference_files'
+        ref_files_dir.mkdir(exist_ok=True)
+        shutil.copy(ref_prot_file, ref_files_dir / ref_prot_file.name)
+        sdfwriter = Chem.SDWriter(ref_files_dir / 'ligand.sdf')            
+        sdfwriter.write(ref_lig_rdmol,confId=0)
 
-        # #write out pharmacophores
-        # ph_files = []
-        # if args.visualize_trajectory:
-        #     # write a trajectory file for each sampled pharmacophore
-        #     for pharm_idx, sampled_pharm in enumerate(sampled_pharms):
-        #         pharm_file = pocket_dir / f'pharm_{pharm_idx}_traj.xyz'
-        #         ph_files.append(pharm_file)
-        #         sampled_pharm.traj_to_xyz(pharm_file)
-        # else:
-        #     # write a single file that contains all sampled pharmacophores
-        #     pharm_file = pocket_dir / 'pharms.xyz'
-        #     ph_files.append(pharm_file)
-        #     pharm_file_content = ''
-        #     for sampled_pharm in sampled_pharms:
-        #         pharm_file_content += sampled_pharm.to_xyz_file()
-        #     with open(pharm_file, 'w') as f:
-        #         f.write(pharm_file_content)
+        #write out pharmacophores
+        ph_files = []
+        if args.visualize_trajectory:
+            # write a trajectory file for each sampled pharmacophore
+            for pharm_idx, sampled_pharm in enumerate(sampled_pharms):
+                pharm_file = pocket_dir / f'pharm_{pharm_idx}_traj.xyz'
+                ph_files.append(pharm_file)
+                sampled_pharm.traj_to_xyz(pharm_file)
+        else:
+            # write a single file that contains all sampled pharmacophores
+            pharm_file = pocket_dir / 'pharms.xyz'
+            ph_files.append(pharm_file)
+            pharm_file_content = ''
+            for sampled_pharm in sampled_pharms:
+                pharm_file_content += sampled_pharm.to_xyz_file()
+            with open(pharm_file, 'w') as f:
+                f.write(pharm_file_content)
 
     # compute metrics if requested
     if args.metrics:
