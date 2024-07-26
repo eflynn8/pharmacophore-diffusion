@@ -113,7 +113,7 @@ def main():
     elif args.dataset_idx is not None and args.dataset_idx_as_start:
         if args.dataset_size is not None:
             dataset_size = args.dataset_size
-            dataset_iterator = trange(args.dataset_idx, args.dataset_idx + args.dataset_size + 1)
+            dataset_iterator = trange(args.dataset_idx, args.dataset_idx + args.dataset_size)
         else:
             raise ValueError('Must provide dataset size if dataset_idx_as_start is used')
     else:
