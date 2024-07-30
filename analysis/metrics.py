@@ -39,15 +39,16 @@ class SampleAnalyzer:
         type_counts = torch.from_numpy(np.zeros(6))
 
         for ph in sample:
-            prot_ph_feat = ph.g.nodes['prot_ph'].data['h_0']
-            pharm_types = prot_ph_feat.argmax(dim=1)
+            pharm_feat = ph.g.nodes['pharm'].data['h_0']
+            pharm_types = pharm_feat.argmax(dim=1)
 
             total += len(pharm_types)
 
             for val in pharm_types:
                 type_counts[val] += 1
         
-        return torch.div(type_counts, total)
+        # return torch.div(type_counts, total)
+        return type_counts
 
 def compute_complementarity(pharm_types, pharm_pos, prot_ph_types, prot_ph_pos, return_count=False):
     #returns fraction of pharmacophore features that are close to a complementary feature in the binding pocket
