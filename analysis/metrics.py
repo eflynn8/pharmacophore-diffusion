@@ -39,8 +39,8 @@ class SampleAnalyzer:
         type_counts = torch.from_numpy(np.zeros(6))
 
         for ph in sample:
-            prot_ph_feat = ph.g.nodes['pharm'].data['h_0']
-            pharm_types = prot_ph_feat.argmax(dim=1)
+            pharm_feat = ph.g.nodes['pharm'].data['h_0']
+            pharm_types = pharm_feat.argmax(dim=1)
 
             total += len(pharm_types)
 

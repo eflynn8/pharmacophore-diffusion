@@ -119,10 +119,11 @@ def main():
     elif args.dataset_idx is not None and args.dataset_idx_as_start:
         if args.dataset_size is not None:
             dataset_size = args.dataset_size
-            dataset_iterator = trange(args.dataset_idx, args.dataset_idx + args.dataset_size + 1)
+            dataset_iterator = trange(args.dataset_idx, args.dataset_idx + dataset_size)
         else:
             raise ValueError('Must provide dataset size if dataset_idx_as_start is used')
     else:
+        dataset_size = 1
         dataset_iterator = trange(args.dataset_idx, args.dataset_idx+1)
 
 
@@ -236,14 +237,15 @@ def main():
         
         freqs = SampleAnalyzer().pharm_feat_freq(all_pharms)
         with open(output_dir / 'pharm_counts.txt', 'w') as f:
-            f.write(str(freqs.data))
+            f.write(freqs)
         with open(output_dir / 'pharm_counts.pkl', 'wb') as f:
             pickle.dump(freqs, f)
-        
+            
         plt.bar(ph_idx_to_type, freqs)
         plt.xticks(rotation=90)
         plt.xlabel("Pharmacophore Feature")
-        plt.ylabel("Feature Frequency")
+        plt.ylabel("Feature Count")
+        plt.title(f"Pharmacophore Type Counts for {dataset_size} Pockets")
         plt.tight_layout()
         plt.savefig(output_dir / f"pharm_freq_plot_{args.dataset_idx}.png")
 
