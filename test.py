@@ -33,7 +33,7 @@ def parse_arguments():
     p.add_argument('--dataset_size', type=int, default=None, help='truncate test dataset')
     p.add_argument('--dataset_idx', type=int, default=None)
     p.add_argument('--dataset_idx_as_start', action='store_true', help="Use dataset idx as starting index and sample dataset size")
-    p.add_argument('--split', type=str, default='val')
+    p.add_argument('--split', type=str, default='val', help="Specifying which data split to use; options are val or train")
     p.add_argument('--use_ref_pharm_com', action='store_true', help="Initialize each pharmacophore's position at the reference pharmacophore's center of mass" )
     p.add_argument('--visualize_trajectory', action='store_true', help="Visualize trajectories of generated pharmacophores" )
 
@@ -90,8 +90,12 @@ def main():
 
     # create test dataset object
     test_data_module = data_module_from_config(config)
-    test_data_module.setup('test')
-    test_dataset = test_data_module.val_dataset
+    if args.split == 'train':
+        test_data_module.setup('fit')
+        test_dataset = test_data_module.train_dataset
+    else:
+        test_data_module.setup('test')
+        test_dataset = test_data_module.val_dataset
 
     #create diffusion model
     # TODO: remove this try/except, it is only for backwards compatibility for models trained before i added the ph_type_map argument to the model class
@@ -227,18 +231,18 @@ def main():
             pickle.dump(metrics, f)
         
         freqs = SampleAnalyzer().pharm_feat_freq(all_pharms)
-        with open(output_dir / 'pharm_counts.txt', 'w') as f:
-            f.write(freqs)
-        with open(output_dir / 'pharm_counts.pkl', 'wb') as f:
+        with open(output_dir / f'pharm_counts_{args.dataset_idx}.txt', 'w') as f:
+            f.write(str(freqs.data))
+        with open(output_dir / f'pharm_counts_{args.dataset_idx}.pkl', 'wb') as f:
             pickle.dump(freqs, f)
-            
+
         plt.bar(ph_idx_to_type, freqs)
         plt.xticks(rotation=90)
         plt.xlabel("Pharmacophore Feature")
         plt.ylabel("Feature Count")
         plt.title(f"Pharmacophore Type Counts for {dataset_size} Pockets")
         plt.tight_layout()
-        plt.savefig(output_dir / "pharm_freq_plot.png")
+        plt.savefig(output_dir / f"pharm_freq_plot_{args.dataset_idx}.png")
 
 
 if __name__ == '__main__':
