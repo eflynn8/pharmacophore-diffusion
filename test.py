@@ -26,6 +26,7 @@ def parse_arguments():
     
     
     p.add_argument('--samples_per_pocket', type=int, default=1, help="number of samples generated per pocket")
+    p.add_argument('--pharm_sizes', nargs="*", type=int, default=[], help="number of pharmacophore centers in each sample, must be of length samples per pocket")
     p.add_argument('--max_batch_size', type=int, default=128, help='maximum feasible batch size due to memory constraints')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--output_dir', type=Path, default=None)
@@ -43,6 +44,11 @@ def parse_arguments():
 
     if args.ckpt is None and args.model_dir is None:
         raise ValueError('Must provide either --ckpt or --model_dir')
+    
+    # check samples per pocket and pharm sizes match
+    if args.pharm_sizes:
+        if len(args.pharm_sizes) != args.samples_per_pocket:
+            raise ValueError("If pharm_sizes list is provided, must of length sample per pocket")
     
     return args
 
@@ -146,7 +152,10 @@ def main():
             batch_size = min(n_pharmacophores_needed, args.max_batch_size)
 
             #collect just the batch_size graphs and init_pharm_coms that we need
-            pharm_sizes = model.pharm_size_dist.sample_uniformly(args.samples_per_pocket)
+            if not args.pharm_sizes:
+                pharm_sizes = model.pharm_size_dist.sample_uniformly(args.samples_per_pocket)
+            else:
+                pharm_sizes = args.pharm_sizes
             g_batch = copy_graph(ref_graph, batch_size, pharm_feats_per_copy=pharm_sizes)
             g_batch = dgl.batch(g_batch)
 
