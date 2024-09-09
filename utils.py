@@ -94,6 +94,17 @@ def get_batch_idxs(g: dgl.DGLHeteroGraph) -> Dict[str, torch.Tensor]:
 
     return batch_idxs
 
+def get_prot_atom_ph_type_maps(dataset_config: dict):
+    # construct atom typing maps
+    prot_elements = dataset_config['prot_elements']
+    prot_element_map: Dict[str, int] = { element: idx for idx, element in enumerate(prot_elements) }
+    ## TODO: Do we use other??
+    prot_element_map['other'] = len(prot_elements)
+
+    ph_types = dataset_config['ph_type_map']
+    ph_type_map: Dict[str, int] = { element: idx for idx, element in enumerate(ph_types) }
+    return prot_element_map, ph_type_map
+
 def save_model(model, output_file: Path):
     torch.save(model.state_dict(), str(output_file))
 
