@@ -128,11 +128,9 @@ def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
 
     # make ligand data into torch tensors
     lig_coords = torch.tensor(lig_coords, dtype=torch.float32)
-    print("Lig Coords Shape: ", lig_coords.shape)
 
     # get COM for ligands to use as pharm initial positions
     lig_com = lig_coords.mean(dim=0).reshape((1, 3))
-    print("Lig COM Shape: ", lig_com)
 
     # get residues which constitute the binding pocket
     pocket_residues = []
@@ -286,6 +284,12 @@ def main():
     n_rec_nodes = ref_graph.num_nodes('prot')
     n_rec_nodes = torch.tensor([n_rec_nodes], device=device)
 
+    if args.use_ref_lig_com:
+        # init_pharm_com = dgl.readout_nodes(ref_graph, ntype='pharm', feat='x_0')
+        ref_lig_com = ref_graph.nodes["pharm"].data["x_0"]
+    else:
+        init_pharm_com = None
+
     all_pharms = []
 
     pocket_sample_start = time.time()
@@ -305,10 +309,9 @@ def main():
         g_batch = copy_graph(ref_graph, batch_size, pharm_feats_per_copy=pharm_sizes)
         g_batch = dgl.batch(g_batch)
 
+        
         if args.use_ref_lig_com:
-            # init_pharm_com = dgl.readout_nodes(ref_graph, ntype='pharm', feat='x_0')
-            init_pharm_com = ref_graph.nodes["pharm"].data["x_0"]
-            print("Init pharm com: ", init_pharm_com)
+            init_pharm_com = ref_lig_com.repeat(batch_size,1)
         else:
             init_pharm_com = None
 
