@@ -38,7 +38,7 @@ def parse_arguments():
     p.add_argument('--receptor_name', type=str, default=None)
     p.add_argument('--max_batch_size', type=int, default=128, help='maximum feasible batch size due to memory constraints')
     p.add_argument('--seed', type=int, default=42, help='random seed as an integer. by default, no random seed is set.')
-    # p.add_argument('--use_ref_pharm_com', action='store_true', help="Initialize each pharmacophore's position at the reference pharmacophore's center of mass" )
+    p.add_argument('--use_ref_lig_com', action='store_true', help="Initialize each pharmacophore's position at the reference ligand's center of mass" )
     p.add_argument('--visualize_trajectory', action='store_true', help="Visualize trajectories of generated pharmacophores" )
     p.add_argument('--metrics', action='store_true', help='compute metrics on generated pharmacophores')
     
@@ -128,6 +128,11 @@ def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
 
     # make ligand data into torch tensors
     lig_coords = torch.tensor(lig_coords, dtype=torch.float32)
+    print("Lig Coords Shape: ", lig_coords.shape)
+
+    # get COM for ligands to use as pharm initial positions
+    lig_com = lig_coords.mean(dim=0).reshape((1, 3))
+    print("Lig COM Shape: ", lig_com)
 
     # get residues which constitute the binding pocket
     pocket_residues = []
@@ -184,8 +189,8 @@ def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
         prot_atom_positions=pocket_coords,
         prot_atom_features=pocket_atom_features,
         cutoffs=graph_cutoffs,
-        pharm_atom_positions=torch.zeros((1, 3)),
-        pharm_atom_features=torch.zeros((1, 6))
+        pharm_atom_positions=lig_com,
+        pharm_atom_features=torch.zeros((1,6))
     )
 
     # save the pocket file
@@ -285,13 +290,6 @@ def main():
 
     pocket_sample_start = time.time()
 
-    ## TODO: Is this possible with pdb outside of dataset??
-    # if args.use_ref_pharm_com:
-    #     ref_init_pharm_com = dgl.readout_nodes(ref_graph, ntype='pharm', feat='x_0', op='mean')
-    #     assert ref_init_pharm_com.shape == (1,3)
-    
-    ref_init_pharm_com = None
-
     sampled_pharms: List[SampledPharmacophore] = []
 
     while True:
@@ -307,9 +305,12 @@ def main():
         g_batch = copy_graph(ref_graph, batch_size, pharm_feats_per_copy=pharm_sizes)
         g_batch = dgl.batch(g_batch)
 
-        # if args.use_ref_pharm_com:
-        #     init_pharm_com = ref_init_pharm_com.repeat(batch_size,1)
-        init_pharm_com = None
+        if args.use_ref_lig_com:
+            # init_pharm_com = dgl.readout_nodes(ref_graph, ntype='pharm', feat='x_0')
+            init_pharm_com = ref_graph.nodes["pharm"].data["x_0"]
+            print("Init pharm com: ", init_pharm_com)
+        else:
+            init_pharm_com = None
 
         #sample pharmacophores
         with g_batch.local_scope():
