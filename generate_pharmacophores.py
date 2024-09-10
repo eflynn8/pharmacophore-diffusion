@@ -4,10 +4,9 @@ import pickle
 import shutil
 import time
 from pathlib import Path
-
+import torch
 import dgl
 import numpy as np
-import torch
 import yaml
 from Bio.PDB import MMCIFIO, PDBIO, MMCIFParser, PDBParser
 from Bio.PDB.Polypeptide import is_aa, protein_letters_3to1
@@ -36,6 +35,7 @@ def parse_arguments():
     p.add_argument('--samples_per_pocket', type=int, default=1, help="number of samples generated per pocket")
     p.add_argument('--pharm_sizes', nargs="*", type=int, default=[], help="number of pharmacophore centers in each sample, must be of length samples per pocket")
     p.add_argument('--output_dir', type=str, default='generated_pharms/')
+    p.add_argument('--receptor_name', type=str, default=None)
     p.add_argument('--max_batch_size', type=int, default=128, help='maximum feasible batch size due to memory constraints')
     p.add_argument('--seed', type=int, default=42, help='random seed as an integer. by default, no random seed is set.')
     # p.add_argument('--use_ref_pharm_com', action='store_true', help="Initialize each pharmacophore's position at the reference pharmacophore's center of mass" )
@@ -259,9 +259,12 @@ def main():
     if not rec_file.exists() or not ref_lig_file.exists():
         raise ValueError('receptor or reference ligand file does not exist')
     
-    rec_name = rec_file.name.split(".")[0]
+    if not args.receptor_name:
+        rec_name = rec_file.name.split(".")[0]
+    else:
+        rec_name = args.receptor_name
 
-    pocket_dir = pharm_dir / f'rec_{rec_name}'
+    pocket_dir = pharm_dir / f'{rec_name}'
     pocket_dir.mkdir(exist_ok=True)
     
     ## TODO: Fix to be correct configs
