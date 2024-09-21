@@ -1,3 +1,4 @@
+import numpy as np
 from pathlib import Path
 import pickle
 from typing import Dict
@@ -9,7 +10,16 @@ class PharmSizeDistribution:
         #TODO: implement
         pass
 
-    def sample(self, n_nodes_rec: torch.Tensor, n_replicates) -> torch.Tensor:
-        #TODO: implement, currently just returning a tensor of 6s
-        return torch.ones(n_replicates, dtype=torch.long) * 6
+    def sample_uniformly(self, n_replicates) -> torch.Tensor:
+        return torch.from_numpy(np.random.randint(3, 9, n_replicates))
+    
+    def sample_variety(self, n_replicates) -> torch.Tensor:
+        sizes = np.zeros(n_replicates)
+        n_centers = 3
+        for i in range(sizes.shape):
+            sizes[i] = n_centers
+            n_centers += 1
+
+            if n_centers > 8:
+                n_centers = 3
         
