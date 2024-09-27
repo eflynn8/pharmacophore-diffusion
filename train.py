@@ -19,9 +19,9 @@ from pytorch_lightning.utilities import rank_zero_only
 
 from pytorch_lightning.loggers import WandbLogger
 
-from config_utils.cmdline import register_hyperparameter_args, merge_config_and_args
-from config_utils.load_from_config import model_from_config, data_module_from_config
-from models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.config_utils.cmdline import register_hyperparameter_args, merge_config_and_args
+from pharmacoforge.config_utils.load_from_config import model_from_config, data_module_from_config
+from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
 
 def parse_arguments():
     p = argparse.ArgumentParser()

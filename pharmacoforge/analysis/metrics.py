@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from constants import ph_idx_to_type
-from analysis.pharm_builder import SampledPharmacophore
+from pharmacoforge.constants import ph_idx_to_type
+from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
 from typing import List
 
 class SampleAnalyzer:

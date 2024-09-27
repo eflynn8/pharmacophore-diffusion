@@ -13,6 +13,7 @@ import random
 from torch_cluster import radius_graph
 import gzip
 from torch.nn.functional import one_hot
+from pharmacoforge.utils.relative_paths import fix_relative_path
 
 class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
@@ -39,6 +40,18 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
         # define filepath of data
         self.processed_data_dir: Path = Path(processed_data_dir)
+
+        # fix relative filepath issues for the processed dataset
+        if not self.processed_data_dir.exists():
+            self.processed_data_dir = Path(fix_relative_path(processed_data_dir))
+            if not self.processed_data_dir.exists():
+                raise FileNotFoundError(f'Could not find processed data directory at {self.processed_data_dir}')
+            
+        # fix relative filepath issues for the raw dataset
+        if not Path(self.raw_data_dir).exists():
+            self.raw_data_dir = fix_relative_path(raw_data_dir)
+            if not Path(self.raw_data_dir).exists():
+                raise FileNotFoundError(f'Could not find raw data directory at {raw_data_dir}')
 
         prot_file_names = []
         lig_rdmol_objects = []
@@ -187,7 +200,11 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
     #
     def get_files(self, idx: int):
         """Given an index of the dataset, return the filepath of the receptor pdb and ligand rdkit object."""
-        return self.raw_data_dir,self.prot_file_names[idx], self.lig_rdmol_objects[idx]
+
+        raw_data_dir, prot_file_name, lig_rdmol = self.raw_data_dir, self.prot_file_names[idx], self.lig_rdmol_objects[idx]
+
+
+        return raw_data_dir, prot_file_name, lig_rdmol
 
 
 def build_initial_complex_graph(prot_atom_positions: torch.Tensor, prot_atom_features: torch.Tensor, cutoffs: dict, pharm_atom_positions: torch.Tensor = None, pharm_atom_features: torch.Tensor = None, prot_ph_pos: torch.Tensor = None, prot_ph_feat: torch.Tensor = None):

@@ -3,9 +3,9 @@ import dgl
 import torch
 from typing import Dict, List, Tuple, Union
 
-from utils import get_batch_info, get_edges_per_batch, get_batch_idxs
+from pharmacoforge.utils import get_batch_info, get_edges_per_batch, get_batch_idxs
 from torch_cluster import radius_graph, knn_graph, knn, radius
-from .gvp import GVPMultiEdgeConv, GVP
+from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP
 
 class NoisePredictionBlock(nn.Module):
 

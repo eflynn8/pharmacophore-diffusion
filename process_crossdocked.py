@@ -13,10 +13,10 @@ import argparse
 from pathlib import Path
 import yaml
 from functools import partial
-from constants import ph_type_to_idx
+from pharmacoforge.constants import ph_type_to_idx
 from tqdm.contrib.concurrent import process_map
 from typing import Dict
-from dataset.receptor_utils import get_mol_pharm
+from pharmacoforge.dataset.receptor_utils import get_mol_pharm
 
 # disbale rdkit warnings
 from rdkit import RDLogger  

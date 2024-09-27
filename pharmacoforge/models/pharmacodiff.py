@@ -11,13 +11,13 @@ import torch.nn.functional as fn
 import torch.optim as optim
 from torch_scatter import segment_coo, segment_csr
 
-from losses.dist_hinge_loss import DistanceHingeLoss
-from models.dynamics_gvp import PharmRecDynamicsGVP
-from models.n_nodes_dist import PharmSizeDistribution
-from analysis.pharm_builder import SampledPharmacophore
-from analysis.metrics import SampleAnalyzer
+from pharmacoforge.losses.dist_hinge_loss import DistanceHingeLoss
+from pharmacoforge.models.dynamics_gvp import PharmRecDynamicsGVP
+from pharmacoforge.models.n_nodes_dist import PharmSizeDistribution
+from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
+from pharmacoforge.analysis.metrics import SampleAnalyzer
 # from models.scheduler import LRScheduler
-from utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
+from pharmacoforge.utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from torch_scatter import segment_csr
 import pytorch_lightning as pl
 
