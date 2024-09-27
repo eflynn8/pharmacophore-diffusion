@@ -1,7 +1,7 @@
-from models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
 from pathlib import Path
-from dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
-from dataset.protein_pharmacophore_datamodule import CrossdockedDataModule
+from pharmacoforge.dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
+from pharmacoforge.dataset.protein_pharmacophore_datamodule import CrossdockedDataModule
 
 def model_from_config(config: dict, ckpt=None) -> PharmacophoreDiff:
 

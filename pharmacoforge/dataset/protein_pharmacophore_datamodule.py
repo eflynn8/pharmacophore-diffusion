@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import numpy as np
 import random
-from dataset.protein_pharm_dataset import ProteinPharmacophoreDataset, get_dataloader, collate_fn
+from pharmacoforge.dataset.protein_pharm_dataset import ProteinPharmacophoreDataset, get_dataloader, collate_fn
 from typing import List
 
 class CrossdockedDataModule(pl.LightningDataModule):

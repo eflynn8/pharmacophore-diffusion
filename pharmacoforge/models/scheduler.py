@@ -2,7 +2,7 @@ from torch.optim import Optimizer
 import numpy as np
 from pathlib import Path
 from utils import save_model
-from models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
 
 class LRScheduler:
 

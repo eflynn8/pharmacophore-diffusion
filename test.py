@@ -9,14 +9,16 @@ import shutil
 import pickle
 from tqdm import trange
 import dgl
-from models.pharmacodiff import PharmacophoreDiff
+from typing import List
 
-from constants import ph_idx_to_type
-from config_utils.load_from_config import model_from_config, data_module_from_config
-from dataset.receptor_utils import write_pocket_file
-from analysis.pharm_builder import SampledPharmacophore
-from analysis.metrics import SampleAnalyzer
-from utils import write_pharmacophore_file, copy_graph
+from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
+
+from pharmacoforge.constants import ph_idx_to_type
+from pharmacoforge.config_utils.load_from_config import model_from_config, data_module_from_config
+from pharmacoforge.dataset.receptor_utils import write_pocket_file
+from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
+from pharmacoforge.analysis.metrics import SampleAnalyzer
+from pharmacoforge.utils import write_pharmacophore_file, copy_graph
 
 def parse_arguments():
     p = argparse.ArgumentParser()
@@ -63,6 +65,8 @@ def main():
     elif args.model_dir is not None:
         run_dir = args.model_dir
         model_file = run_dir / 'checkpoints' / 'last.ckpt'
+    else:
+        raise ValueError('Must provide either --ckpt or --model_dir')
 
     #get output dir path and create the directory
     if args.output_dir is None:
@@ -165,13 +169,13 @@ def main():
             g_batch = dgl.batch(g_batch)
 
             if args.use_ref_pharm_com:
-                init_pharm_com = ref_init_pharm_com.repeat(batch_size,1)
+                init_pharm_com = ref_init_pharm_com.repeat(batch_size,1) # type: ignore
             else:
                 init_pharm_com = None
 
             #sample pharmacophores
             with g_batch.local_scope():
-                batch_pharms = model.sample_given_receptor(g_batch, init_pharm_com=init_pharm_com,visualize_trajectory=args.visualize_trajectory)
+                batch_pharms = model.sample_given_receptor(g_batch, init_pharm_com=init_pharm_com,visualize_trajectory=args.visualize_trajectory) # type: ignore
                 sampled_pharms.extend(batch_pharms)
 
             #break out of loop when we have enough pharmacophores
@@ -225,7 +229,7 @@ def main():
             ph_files.append(pharm_file)
             pharm_file_content = ''
             for sampled_pharm in sampled_pharms:
-                pharm_file_content += sampled_pharm.to_xyz_file()
+                pharm_file_content += sampled_pharm.to_xyz_file() # type: ignore
             with open(pharm_file, 'w') as f:
                 f.write(pharm_file_content)
 
