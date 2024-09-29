@@ -11,7 +11,7 @@ from tqdm import trange
 import dgl
 from typing import List
 
-from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.models.forge import PharmacoForge
 
 from pharmacoforge.constants import ph_idx_to_type
 from pharmacoforge.config_utils.load_from_config import model_from_config, data_module_from_config
@@ -110,9 +110,9 @@ def main():
     #create diffusion model
     # TODO: remove this try/except, it is only for backwards compatibility for models trained before i added the ph_type_map argument to the model class
     try:
-        model = PharmacophoreDiff.load_from_checkpoint(model_file).to(device)
+        model = PharmacoForge.load_from_checkpoint(model_file).to(device)
     except TypeError:
-        model = PharmacophoreDiff.load_from_checkpoint(model_file, ph_type_map=config['dataset']['ph_type_map']).to(device)
+        model = PharmacoForge.load_from_checkpoint(model_file, ph_type_map=config['dataset']['ph_type_map']).to(device)
     model.eval()
 
     pocket_sampling_times=[]

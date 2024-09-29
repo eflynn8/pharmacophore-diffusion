@@ -1,9 +1,9 @@
-from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.models.forge import PharmacoForge
 from pathlib import Path
 from pharmacoforge.dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
 from pharmacoforge.dataset.protein_pharmacophore_datamodule import CrossdockedDataModule
 
-def model_from_config(config: dict, ckpt=None) -> PharmacophoreDiff:
+def model_from_config(config: dict, ckpt=None) -> PharmacoForge:
 
 
     # get the number of receptor atom features, ligand atom features, and keypoint features
@@ -13,7 +13,7 @@ def model_from_config(config: dict, ckpt=None) -> PharmacophoreDiff:
     eval_config = config['training']['evaluation']
 
 
-    model = PharmacophoreDiff(
+    model = PharmacoForge(
         pharm_nf=n_ph_types,
         rec_nf=n_rec_feat,
         ph_type_map=config['dataset']['ph_type_map'],
