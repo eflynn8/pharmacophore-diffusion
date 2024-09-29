@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pharmacoforge"
+version = "0.0.1"
+description = "Generative models for receoptor-conditioned pharmacophore design"
+authors = [{name = "Emma Flynn", email = "eflynn8@pitt.edu"}]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pharmacoforge*"]
