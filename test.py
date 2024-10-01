@@ -156,31 +156,18 @@ def main():
 
         sampled_pharms: List[SampledPharmacophore] = []
 
-        while True:
-            n_pharmacophores_needed = args.samples_per_pocket - len(sampled_pharms)
-            batch_size = min(n_pharmacophores_needed, args.max_batch_size)
+        # TODO: is this the best pharmacophore size selection method?
+        if not args.pharm_sizes:
+            pharm_sizes = model.pharm_size_dist.sample_uniformly(args.samples_per_pocket)
+        else:
+            pharm_sizes = args.pharm_sizes
 
-            #collect just the batch_size graphs and init_pharm_coms that we need
-            if not args.pharm_sizes:
-                pharm_sizes = model.pharm_size_dist.sample_uniformly(args.samples_per_pocket)
-            else:
-                pharm_sizes = args.pharm_sizes
-            g_batch = copy_graph(ref_graph, batch_size, pharm_feats_per_copy=pharm_sizes)
-            g_batch = dgl.batch(g_batch)
-
-            if args.use_ref_pharm_com:
-                init_pharm_com = ref_init_pharm_com.repeat(batch_size,1) # type: ignore
-            else:
-                init_pharm_com = None
-
-            #sample pharmacophores
-            with g_batch.local_scope():
-                batch_pharms = model.sample_given_receptor(g_batch, init_pharm_com=init_pharm_com,visualize_trajectory=args.visualize_trajectory) # type: ignore
-                sampled_pharms.extend(batch_pharms)
-
-            #break out of loop when we have enough pharmacophores
-            if len(sampled_pharms) >= args.samples_per_pocket:
-                break
+        sampled_pharms = model.sample(
+            ref_graphs=[ref_graph],
+            n_pharms=[pharm_sizes],
+            init_pharm_com=ref_init_pharm_com,
+            visualize_trajectory=args.visualize_trajectory,
+        )
         
         pocket_sample_time = time.time() - pocket_sample_start
         pocket_sampling_times.append(pocket_sample_time)
@@ -235,7 +222,8 @@ def main():
 
     # compute metrics if requested
     if args.metrics:
-        metrics = SampleAnalyzer().analyze(all_pharms)
+        sample_analyzer = SampleAnalyzer()
+        metrics = sample_analyzer.analyze(all_pharms)
         print(metrics)
         with open(output_dir / 'metrics.txt', 'w') as f:
             metrics_strs = [ f'{k}: {v:.3f}' for k,v in metrics.items() ]
@@ -243,7 +231,7 @@ def main():
         with open(output_dir / 'metrics.pkl', 'wb') as f:
             pickle.dump(metrics, f)
         
-        freqs = SampleAnalyzer().pharm_feat_freq(all_pharms)
+        freqs = sample_analyzer.pharm_feat_freq(all_pharms)
         with open(output_dir / f'pharm_counts_{args.dataset_idx}.txt', 'w') as f:
             f.write(str(freqs.data))
         with open(output_dir / f'pharm_counts_{args.dataset_idx}.pkl', 'wb') as f:

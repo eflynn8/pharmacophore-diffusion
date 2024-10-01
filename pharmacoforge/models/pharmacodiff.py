@@ -8,6 +8,8 @@ import torch.nn.functional as fn
 from pharmacoforge.models.n_nodes_dist import PharmSizeDistribution
 from pharmacoforge.models.dynamics_gvp import PharmRecDynamicsGVP
 from pharmacoforge.utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
+from pharmacoforge.utils.graph_ops import remove_com
+from pharmacoforge.analysis.sampled_pharmacophore import SampledPharmacophore
 
 
 class PharmacoDiff(pl.LightningModule):
@@ -62,7 +64,7 @@ class PharmacoDiff(pl.LightningModule):
 
         # remove pharmacophore COM from the system if remove_com is True
         if self.remove_com:
-            g = self.com_removal(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+            g = remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
         
         if return_com:
             raise NotImplementedError('i dont think we need to do this so im making it an error for now')
@@ -105,7 +107,7 @@ class PharmacoDiff(pl.LightningModule):
         g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
 
         # remove pharmacophore COM from protein-pharmacophore graph
-        g = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
+        g = remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
         # sample timepoints for each item in the batch
         t = torch.randint(0, self.gen_model.n_timesteps, size=(batch_size,), device=device).float() # timesteps
@@ -213,9 +215,114 @@ class PharmacoDiff(pl.LightningModule):
         g.nodes['pharm'].data['h_t'] = mu_feat + sigma*feat_noise
 
         #remove pharmacophore COM from system
-        g = self.com_removal(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+        g = remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
 
         return g
+
+    def sigma(self, gamma):
+        """Computes sigma given gamma."""
+        return torch.sqrt(torch.sigmoid(gamma))
+
+    def alpha(self, gamma):
+        """Computes alpha given gamma."""
+        return torch.sqrt(torch.sigmoid(-gamma))
+
+    def sigma_and_alpha_t_given_s(self, gamma_t, gamma_s):
+        # this function is almost entirely copied from DiffSBDD
+
+        sigma2_t_given_s = -torch.expm1(fn.softplus(gamma_s) - fn.softplus(gamma_t))
+
+        log_alpha2_t = fn.logsigmoid(-gamma_t)
+        log_alpha2_s = fn.logsigmoid(-gamma_s)
+        log_alpha2_t_given_s = log_alpha2_t - log_alpha2_s
+        alpha_t_given_s = torch.exp(0.5 * log_alpha2_t_given_s)
+        alpha_s= torch.exp(0.5 * log_alpha2_s)
+        sigma_t_given_s = torch.sqrt(sigma2_t_given_s)
+
+        return sigma2_t_given_s, sigma_t_given_s, alpha_t_given_s, alpha_s
+
+    def sample_prior(self, g: dgl.DGLHeteroGraph):
+
+        #sample initial positions/features of pharmacophore features
+        g.nodes['pharm'].data['x_t'] = torch.randn(g.num_nodes('pharm'), 3, device=g.device)
+        g.nodes['pharm'].data['h_t'] = torch.randn(g.num_nodes('pharm'), self.n_pharm_feats, device=g.device)
+
+    def sample(self, g:dgl.DGLHeteroGraph, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool = False):
+        device = g.device
+        batch_size = g.batch_size
+
+        #get initial protein com 
+        init_prot_com = dgl.readout_nodes(g, feat='x_0', ntype='prot', op='mean')
+
+        #get batch indices of every node
+        batch_idxs = get_batch_idxs(g)
+
+        #Use the receptor pocket COM if pharmacophore COM not provided
+        if init_pharm_com is None:
+            init_pharm_com=init_prot_com
+
+        #move the protein to the pharmacophore com
+        g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]
+
+        g = self.sample_prior(g)
+
+        if visualize_trajectory:
+
+            pharm_pos_frames,pharm_feat_frames = [],[] 
+            pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g, init_prot_com, batch_idxs)
+            pharm_pos_frames.append(pharm_pos)
+            pharm_feat_frames.append(pharm_feats)
+
+        # Iteratively sample p(z_s | z_t) for t = 1, ..., T, with s = t - 1.
+        for s in reversed(range(self.n_timesteps)):
+            s_arr=torch.full(size=(batch_size,),fill_value=s,device=device)
+            t_arr=s_arr+1
+            s_arr=s_arr.float()/self.n_timesteps
+            t_arr=t_arr.float()/self.n_timesteps
+
+            g=self.sample_p_zs_given_zt(s_arr, t_arr, g, batch_idxs)
+
+            if visualize_trajectory:
+                pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g, init_prot_com, batch_idxs)
+                pharm_pos_frames.append(pharm_pos)
+                pharm_feat_frames.append(pharm_feats)
+
+        # set the t=t features to t=0 features
+        for feat in 'xh':
+            g.nodes['pharm'].data[f'{feat}_0'] = g.nodes['pharm'].data[f'{feat}_t']
+            
+        g = remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
+
+        for n_type in ['pharm', 'prot']:
+            g.nodes[n_type].data['x_0'] = g.nodes[n_type].data['x_0'] + init_prot_com[batch_idxs[n_type]]
+
+        g=self.unnormalize(g)
+
+        if visualize_trajectory:
+            # reshape trajectory frames
+
+            pharm_pos_frames = list(zip(*pharm_pos_frames))
+            pharm_feat_frames = list(zip(*pharm_feat_frames))
+
+            trajs = []
+            for batch_idx in range(len(pharm_pos_frames)):
+                pos_frames = torch.stack(pharm_pos_frames[batch_idx], dim=0)
+                feat_frames = torch.stack(pharm_feat_frames[batch_idx], dim=0)
+                trajs.append((pos_frames, feat_frames))
+
+
+        g=g.to('cpu')
+        sampled_pharms: List[SampledPharmacophore] = []
+        for gidx, g_i in enumerate(dgl.unbatch(g)):
+            kwargs = {
+                'g': g_i, 
+                'pharm_type_map': self.ph_type_map,
+            }
+            if visualize_trajectory:
+                kwargs['traj_frames'] = trajs[gidx]
+            sampled_pharms.append(SampledPharmacophore(**kwargs))
+
+        return sampled_pharms
 
 
 # noise schedules are taken from DiffSBDD: https://github.com/arneschneuing/DiffSBDD
