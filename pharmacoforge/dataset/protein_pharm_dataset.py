@@ -14,6 +14,7 @@ from torch_cluster import radius_graph
 import gzip
 from torch.nn.functional import one_hot
 from pharmacoforge.utils.relative_paths import fix_relative_path
+from pharmacoforge.models.priors import com_free_gaussian, align_prior
 
 class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
 
@@ -27,7 +28,9 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         ph_type_map: List[str],
         subsample_pharms: bool = False,
         subsample_min: int = 3,
-        subsample_max: int = 9,  **kwargs):
+        subsample_max: int = 9,  
+        model_class: str = 'diffusion',
+        **kwargs):
 
         self.graph_cutoffs = graph_cutoffs
         self.prot_elements = prot_elements
@@ -37,6 +40,7 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         self.subsample_pharms = subsample_pharms
         self.subsample_min = subsample_min
         self.subsample_max = subsample_max
+        self.model_class = model_class
 
         # define filepath of data
         self.processed_data_dir: Path = Path(processed_data_dir)
@@ -150,9 +154,17 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         prot_ph_pos = self.prot_ph_pos[prot_ph_start_idx:prot_ph_end_idx]
         prot_ph_feat = self.prot_ph_feat[prot_ph_start_idx:prot_ph_end_idx]
 
-        # one-hot encode node features
-        prot_feat = one_hot(prot_feat.long(), num_classes=len(self.prot_elements)).float()
-        pharm_feat = one_hot(pharm_feat.long(), num_classes=len(self.ph_type_map)).float()
+        # for diffusion (for which we only have continuous diffusion implemented) - one-hot encode categorical features
+        if self.model_class == 'diffusion':
+            prot_feat = one_hot(prot_feat.long(), num_classes=len(self.prot_elements)).float()
+            pharm_feat = one_hot(pharm_feat.long(), num_classes=len(self.ph_type_map)).float()
+        elif self.model_class == 'flow-matching':
+            # for flow-matching, we keep categorical features as tokens
+            pharm_feat = pharm_feat.unsqueeze(-1)
+            prot_feat = prot_feat.unsqueeze(-1)
+
+        # in either case, downstream code needs prot_ph_feat just to compute validity (complementarity)
+        # and this code just assumes it is a one-hot encoded tensor
         prot_ph_feat = one_hot(prot_ph_feat.long(), num_classes=len(self.ph_type_map)).float()
 
         ## Subsample pharmacophore features if subsample_pharms is True
@@ -173,8 +185,30 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         
         #TODO turn on for hinge loss
         # for ntype in ['pharm', 'prot', 'prot_ph']:
-        for ntype in ['pharm', 'prot']:
-            complex_graph.nodes[ntype].data['h_0'] = complex_graph.nodes[ntype].data['h_0'].float()
+        if self.model_class == 'diffusion':
+            for ntype in ['pharm', 'prot']:
+                complex_graph.nodes[ntype].data['h_0'] = complex_graph.nodes[ntype].data['h_0'].float()
+
+        # if we are doing flow matching, sample the prior here and do alignment for positons
+        if self.model_class == 'flow-matching':
+
+            # all pharmacophore types are set to the mask token
+            complex_graph['pharm'].data['h_1'] = torch.ones_like(complex_graph['pharm'].data['h_0'])*len(self.prot_elements)
+
+            # get ground-truth pharmacophore positions
+            x_0 = complex_graph['pharm'].data['x_0']
+
+            # sample gaussian with zero COM
+            x_1 = com_free_gaussian(*x_0.shape)
+
+            # move to the center of the true pharmacophore
+            x_1 += x_0.mean(dim=0, keepdim=True)
+
+            # perform equivarint-OT alignment
+            x_1 = align_prior(x_1, x_0, permutation=True, rigid_body=True)
+
+            complex_graph.nodes['pharm'].data['x_1'] = x_1
+
 
         return complex_graph
 

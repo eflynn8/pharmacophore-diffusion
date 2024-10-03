@@ -4,15 +4,16 @@ from pathlib import Path
 from typing import List, Dict
 import dgl
 import torch.nn.functional as fn
+import numpy as np
 
 from pharmacoforge.models.n_nodes_dist import PharmSizeDistribution
 from pharmacoforge.models.dynamics_gvp import PharmRecDynamicsGVP
 from pharmacoforge.utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from pharmacoforge.utils.graph_ops import remove_com
-from pharmacoforge.analysis.sampled_pharmacophore import SampledPharmacophore
+from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
 
 
-class PharmacoDiff(pl.LightningModule):
+class PharmacoDiff(nn.Module):
 
     def __init__(self, 
         pharm_nf, 
@@ -264,6 +265,7 @@ class PharmacoDiff(pl.LightningModule):
         #move the protein to the pharmacophore com
         g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]
 
+        # sample prior for pharmacophore center positons + types
         g = self.sample_prior(g)
 
         if visualize_trajectory:

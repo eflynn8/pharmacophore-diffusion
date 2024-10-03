@@ -8,3 +8,4 @@ You have to install the dependencies yourself. But, once you do, while you're in
 
 # TODO:
 - [ ] `Pharmacoforge.sample_and_analyze` uses ref # of pharmacophores centers, perhaps not ideal or OOD
+- [ ] i have questions about pharm size selection in test.py

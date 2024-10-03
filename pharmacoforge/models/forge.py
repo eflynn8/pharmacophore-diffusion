@@ -15,10 +15,11 @@ from pharmacoforge.losses.dist_hinge_loss import DistanceHingeLoss
 from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
 from pharmacoforge.analysis.metrics import SampleAnalyzer
 from pharmacoforge.models.pharmacodiff import PharmacoDiff
+from pharmacoforge.models.pharmacoflow import PharmacoFlow
 from pharmacoforge.models.n_nodes_dist import PharmSizeDistribution
 from pharmacoforge.utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from pharmacoforge.utils.graph_ops import remove_com
-# from models.scheduler import LRScheduler
+from pharmacoforge.models.scheduler import LRScheduler
 
 from torch_scatter import segment_csr
 import pytorch_lightning as pl
@@ -78,7 +79,15 @@ class PharmacoForge(pl.LightningModule):
                                           remove_com, 
                                           **kwargs)
         elif model_class == 'flow-matching':
-            raise NotImplementedError('Flow-matching model not implemented yet')
+            self.gen_model = PharmacoFlow(
+                pharm_nf,
+                rec_nf,
+                ph_type_map,
+                processed_data_dir,
+                graph_config=graph_config,
+                vf_config=dynamics_config,
+                **kwargs
+            )
             
         
         self.pharm_size_dist = PharmSizeDistribution(processed_data_dir)
@@ -112,15 +121,17 @@ class PharmacoForge(pl.LightningModule):
         self.lr_scheduler_config['frequency'] = int(self.num_training_steps() * self.val_loss_interval) + 1
     
     def configure_optimizers(self):
+        try:
+            weight_decay = self.lr_scheduler_config['weight_decay']
+        except KeyError:
+            weight_decay = 0
+
         optimizer = optim.Adam(self.parameters(), 
                                lr=self.lr_scheduler_config['base_lr'],
-                               weight_decay=self.lr_scheduler_config['weight_decay']
+                               weight_decay=weight_decay
         )
-        scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
-        self.set_lr_scheduler_frequency()
-
-        # self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
-        return {'optimizer': optimizer, 'lr_scheduler': {"scheduler":scheduler,"monitor": self.lr_scheduler_config['monitor'], "interval": self.lr_scheduler_config['interval'], "frequency": self.lr_scheduler_config['frequency']}}
+        self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
+        return {'optimizer': optimizer, }
 
     def training_step(self, batch, batch_idx):
         protpharm_graphs = batch
@@ -128,9 +139,12 @@ class PharmacoForge(pl.LightningModule):
 
         # compute the epoch as a float
         epoch_exact = self.current_epoch + batch_idx / self.num_training_batches()
+
+        # step the learning rate scheduler
+        self.lr_scheduler.step(epoch_exact)
         
         # forward pass, get losses and metrics
-        outputs = self.forward(protpharm_graphs,phase=phase)
+        outputs = self.forward(protpharm_graphs)
 
         # compute total loss
         # TODO: loss weights
