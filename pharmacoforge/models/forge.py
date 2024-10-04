@@ -32,7 +32,6 @@ class PharmacoForge(pl.LightningModule):
         rec_nf, 
         ph_type_map: List[str], 
         processed_data_dir: Path, 
-        n_timesteps: int = 1000, 
         graph_config={}, 
         dynamics_config = {}, 
         lr_scheduler_config = {}, 
@@ -41,12 +40,8 @@ class PharmacoForge(pl.LightningModule):
         batch_size: int = 64,
         pharms_per_pocket: int = 8,
         n_pockets_to_sample: int = 8,
-        precision=1e-4, 
-        pharm_feat_norm_constant=1, 
-        endpoint_param_feat: bool = False, 
-        endpoint_param_coord: bool = False, 
-        weighted_loss: bool = False,
-        remove_com: bool = True,
+        diffusion_config = {},
+        fm_config = {},
         model_class: str = 'diffusion' , # can be diffusion or flow-matching
         **kwargs):
         super().__init__()
@@ -54,12 +49,6 @@ class PharmacoForge(pl.LightningModule):
         self.n_prot_feats = rec_nf
         self.batch_size = batch_size
         self.ph_type_map = ph_type_map
-        self.n_timesteps = n_timesteps
-        self.remove_com = remove_com
-        self.pharm_feat_norm_constant = pharm_feat_norm_constant
-        self.endpoint_param_feat = endpoint_param_feat
-        self.endpoint_param_coord = endpoint_param_coord
-        self.weighted_loss = weighted_loss
         self.model_class = model_class
 
         if model_class == 'diffusion':
@@ -68,16 +57,9 @@ class PharmacoForge(pl.LightningModule):
                                           rec_nf, 
                                           ph_type_map, 
                                           processed_data_dir, 
-                                          n_timesteps, 
                                           graph_config, 
-                                          dynamics_config, 
-                                          precision, 
-                                          pharm_feat_norm_constant, 
-                                          endpoint_param_feat, 
-                                          endpoint_param_coord, 
-                                          weighted_loss, 
-                                          remove_com, 
-                                          **kwargs)
+                                          dynamics_config,  
+                                          **diffusion_config)
         elif model_class == 'flow-matching':
             self.gen_model = PharmacoFlow(
                 pharm_nf,
@@ -85,8 +67,7 @@ class PharmacoForge(pl.LightningModule):
                 ph_type_map,
                 processed_data_dir,
                 graph_config=graph_config,
-                vf_config=dynamics_config,
-                **kwargs
+                **fm_config
             )
             
         

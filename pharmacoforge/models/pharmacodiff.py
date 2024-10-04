@@ -28,14 +28,13 @@ class PharmacoDiff(nn.Module):
         endpoint_param_feat: bool = False, 
         endpoint_param_coord: bool = False, 
         weighted_loss: bool = False,
-        remove_com: bool = True, 
-        **kwargs):
+        remove_com_noising: bool = True):
         super().__init__()
         self.n_pharm_feats = pharm_nf
         self.n_prot_feats = rec_nf
         self.ph_type_map = ph_type_map
         self.n_timesteps = n_timesteps
-        self.remove_com = remove_com
+        self.remove_com_noising = remove_com_noising
         self.pharm_feat_norm_constant = pharm_feat_norm_constant
         self.endpoint_param_feat = endpoint_param_feat
         self.endpoint_param_coord = endpoint_param_coord
@@ -64,7 +63,7 @@ class PharmacoDiff(nn.Module):
 
 
         # remove pharmacophore COM from the system if remove_com is True
-        if self.remove_com:
+        if self.remove_com_noising:
             g = remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
         
         if return_com:

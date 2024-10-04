@@ -26,7 +26,9 @@ def model_from_config(config: dict, ckpt=None) -> PharmacoForge:
         graph_config=config['graph'],
         dynamics_config=config['dynamics'],
         lr_scheduler_config=config['lr_scheduler'],
-        **config['diffusion']
+        diffusion_config=config['diffusion'],
+        fm_config=config['flow-matching'],
+        **config['pharmacoforge']
     )
 
     return model

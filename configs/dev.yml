@@ -67,6 +67,34 @@ dataset:
 graph:
   graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
 
+pharmacoforge:
+  model_class: flow-matching
+
+flow-matching:
+  vf_config: # kwargs for FMVectorField
+    node_scalar_dim: 64
+    node_vector_dim: 16
+    convs_per_update: 1
+    n_recycles: 1
+    n_updates: 3
+    separate_updaters: true
+    time_embedding_dim: 1
+    type_embedding_dim: 64
+    conv_config: # kwargs for GVPMultiEdgeConv
+      cp_dim: 0
+      n_message_gvps: 3
+      n_update_gvps: 3
+      n_expansion_gvps: 3
+      attention: False
+      n_kq_gvps: 3
+      s_kq_dim: 32
+      v_kq_dim: 32
+      message_norm: 100
+      rbf_dmax: 16
+      rbf_dim: 42
+      s_message_dim: null
+      v_message_dim: null
+
 diffusion:
   n_timesteps: 100
   precision: 1.0e-5
@@ -75,7 +103,7 @@ diffusion:
   endpoint_param_feat: False
   endpoint_param_coord: False
   weighted_loss: False
-  remove_com: True
+  remove_com_noising: True
 
 dynamics:
   vector_size: 16
