@@ -15,6 +15,7 @@ class PharmacoFlow(nn.Module):
         rec_nf: int,  # number of scalar features for receptor nodes
         ph_type_map: List[str], 
         processed_data_dir: Path,
+        time_scaled_loss: bool = False,
         graph_config: dict = {},
         vf_config: dict = {},                  
     ):
@@ -26,11 +27,26 @@ class PharmacoFlow(nn.Module):
         self.processed_data_dir = processed_data_dir
         self.graph_config = graph_config
         self.vf_config = vf_config
+        self.time_scaled_loss = time_scaled_loss
 
         self.vector_field = FMVectorField(
                             n_pharm_types=n_pharm_types,
                             rec_nf=rec_nf,
+                            graph_config=self.graph_config,
                             **vf_config)
+        
+
+        # configure loss functions
+        if self.time_scaled_loss:
+            reduction = 'none'
+        else:
+            reduction = 'mean'
+
+        self.loss_ignore_idx = -10
+        self.loss_fns = {
+            'h': nn.CrossEntropyLoss(reduction='mean', ignore_index=self.loss_ignore_idx),
+            'x': nn.MSELoss(reduction='mean'),
+        }
 
     
     def forward(self, g: dgl.DGLHeteroGraph):
@@ -50,8 +66,28 @@ class PharmacoFlow(nn.Module):
         # predict final pharmacophore
         dst_dict = self.vector_field(g, t)
 
-        # compute losses
+        time_weights = self.loss_weights(t)
+        if self.time_scaled_loss:
+            time_weights = time_weights[batch_idxs['pharm']]
+
         losses = {}
+        for key in self.loss_fns:
+
+            target = g.nodes['pharm'].data[f'{key}_0']
+
+            # set pharmacophore centers in x_t that were unmasked to the ignore index
+            if key == 'h':
+                xt = g.nodes['pharm'].data['h_t']
+                unmasked_at_t = xt != len(self.ph_type_map)
+                target[unmasked_at_t] = self.loss_ignore_idx
+
+            losses[key] = time_weights * self.loss_fns[key](dst_dict[key], target)
+
+            # if time_scaled_loss is True, we need to do the reduction ourselves
+            if self.time_scaled_loss:
+                losses[key] = losses[key].mean()
+
+        # TODO: fix loss names
 
         return losses
 
@@ -79,6 +115,17 @@ class PharmacoFlow(nn.Module):
         g.nodes['pharm'].data['x_t'] = x_t
 
         return g
+    
+    def loss_weights(self, t):
+
+        if not self.time_scaled_loss:
+            return 1
+        
+        # TODO: implement abitrary interpolant schedule
+        kappa = t
+        kappa_prime = 1
+        weights = kappa_prime / (1 - kappa)
+        weights = torch.clamp(weights, min=0.05, max=1.5)
 
 
         

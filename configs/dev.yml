@@ -74,6 +74,7 @@ pharmacoforge:
   model_class: flow-matching
 
 flow-matching:
+  time_scaled_loss: False
   vf_config: # kwargs for FMVectorField
     node_scalar_dim: 64
     node_vector_dim: 16
