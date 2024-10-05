@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import dgl
-from typing import Dict, Union, List, Tuple
+from typing import Dict, Union, List, Tuple, Callable
+from tqdm import tqdm
 
 from pharmacoforge.utils.embedding import get_time_embedding
 from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP, _norm_no_nan, _rbf
@@ -31,6 +32,11 @@ class FMVectorField(nn.Module):
                 separate_updaters: bool = True,
                 time_embedding_dim: int = 1,
                 type_embedding_dim: int = 64,
+                cat_temperature_schedule: Union[str, Callable, float] = 0.05,
+                cat_temp_decay_max: float = 0.8,
+                cat_temp_decay_a: float = 2,
+                stochasticity: float = 20,
+                high_confidence_threshold: float = 0.9,
                 conv_config: dict = {},
                 graph_config: dict = {}
     ):
@@ -50,6 +56,19 @@ class FMVectorField(nn.Module):
         self.rbf_dim = conv_config['rbf_dim']
         self.graph_config = graph_config
 
+        # default sampling settings for cateogrical features
+        self.stochasticity = stochasticity
+        self.high_confidence_threshold = high_confidence_threshold
+
+
+        # configure categorical feature temperature schedule
+        self.cat_temp_func = cat_temperature_schedule
+        self.cat_temp_decay_max = cat_temp_decay_max
+        self.cat_temp_decay_a = cat_temp_decay_a
+        self.cat_temp_func = self.build_cat_temp_schedule(
+            cat_temperature_schedule=cat_temperature_schedule,
+            cat_temp_decay_max=cat_temp_decay_max,
+            cat_temp_decay_a=cat_temp_decay_a)
 
         self.scalar_embedding_fns = nn.ModuleDict({})
 
@@ -106,7 +125,18 @@ class FMVectorField(nn.Module):
             nn.Linear(mid_layer_size, self.n_pharm_types)
         )
 
+    def build_cat_temp_schedule(self, cat_temperature_schedule, cat_temp_decay_max, cat_temp_decay_a):
 
+        if cat_temperature_schedule == 'decay':
+            cat_temp_func = lambda t: cat_temp_decay_max*torch.pow(1-t, cat_temp_decay_a)
+        elif isinstance(cat_temperature_schedule, (float, int)):
+            cat_temp_func = lambda t: cat_temperature_schedule
+        elif callable(cat_temperature_schedule):
+            cat_temp_func = cat_temperature_schedule
+        else:
+            raise ValueError(f"Invalid cat_temperature_schedule: {cat_temperature_schedule}")
+        
+        return cat_temp_func
 
     def forward(self, g: dgl.DGLHeteroGraph, 
                 t: torch.Tensor, 
@@ -174,7 +204,7 @@ class FMVectorField(nn.Module):
                     x_diff, d = self.precompute_distances(g, node_positions=node_positions)
         
 
-
+        # readout pharmacophore types
         ph_type_logits = self.pharm_scalar_readout(conv_feats['pharm'][0])
         if apply_softmax:
             ph_type_logits = torch.softmax(ph_type_logits, dim=-1)
@@ -212,6 +242,121 @@ class FMVectorField(nn.Module):
         
         return x_diff, d
     
+    def integrate(self, 
+        g: dgl.DGLGraph, 
+        batch_idxs: Dict[str, torch.Tensor],
+        n_timesteps: int, 
+        visualize=False, 
+        dfm_type='campbell',
+        stochasticity=None, 
+        high_confidence_threshold=None,
+        cat_temp_func=None,
+        tspan=None):
+        """Integrate the trajectories of molecules along the vector field."""
+        if cat_temp_func is None:
+            cat_temp_func = self.cat_temp_func
+        if stochasticity is None:
+            stochasticity = self.stochasticity
+        if high_confidence_threshold is None:
+            high_confidence_threshold = self.high_confidence_threshold
+
+
+        # get the timepoint for integration
+        if tspan is None:
+            t = torch.linspace(0, 1, n_timesteps, device=g.device)
+        else:
+            t = tspan
+
+        # get the corresponding alpha values for each timepoint
+        # TODO: implement interpolant scheduler
+        kappa_t = t
+        kappa_t_prime = torch.ones_like(kappa_t)
+
+        # set x_t = x_0 (flow matching time in comments but diffusion time in data keys)
+        g.nodes['pharm'].data['x_t'] = g.nodes['pharm'].data['x_1']
+        g.nodes['pharm'].data['h_t'] = g.nodes['pharm'].data['h_1']
+
+        # if visualizing the trajectory, create a datastructure to store the trajectory
+        if visualize:
+            traj_frames = {}
+            for feat in 'xh':
+                split_sizes = g.batch_num_nodes(ntype='pharm')
+                split_sizes = split_sizes.detach().cpu().tolist()
+                init_frame = g.nodes['pharm'].data[f'{feat}_1'].detach().cpu()
+                init_frame = torch.split(init_frame, split_sizes)
+                traj_frames[feat] = [ init_frame ]
+                traj_frames[f'{feat}_0_pred'] = []
+    
+        for s_idx in range(1,t.shape[0]):
+
+            # get the next timepoint (s) and the current timepoint (t)
+            s_i = t[s_idx]
+            t_i = t[s_idx - 1]
+            alpha_t_i = kappa_t[s_idx - 1]
+            alpha_s_i = kappa_t[s_idx]
+            alpha_t_prime_i = kappa_t_prime[s_idx - 1]
+
+            # determine if this is the last integration step
+            if s_idx == t.shape[0] - 1:
+                last_step = True
+            else:
+                last_step = False
+
+            # compute next step and set x_t = x_s
+            g = self.step(g, s_i, t_i, alpha_t_i, alpha_s_i, 
+                alpha_t_prime_i, 
+                batch_idxs=batch_idxs,
+                cat_temp_func=cat_temp_func,
+                stochasticity=stochasticity, 
+                high_confidence_threshold=high_confidence_threshold,
+                last_step=last_step)
+
+            if visualize:
+                for feat in 'xh':
+
+                    frame = g.nodes['pharm'][f'{feat}_t'].detach().cpu()
+                    if feat == 'e':
+                        split_sizes = g.batch_num_edges()
+                    else:
+                        split_sizes = g.batch_num_nodes()
+                    split_sizes = split_sizes.detach().cpu().tolist()
+                    frame = g_data_src[f'{feat}_t'].detach().cpu()
+                    frame = torch.split(frame, split_sizes)
+                    traj_frames[feat].append(frame)
+
+                    ep_frame = g_data_src[f'{feat}_1_pred'].detach().cpu()
+                    ep_frame = torch.split(ep_frame, split_sizes)
+                    traj_frames[f'{feat}_1_pred'].append(ep_frame)
+
+        # set x_1 = x_t
+        for feat in self.canonical_feat_order:
+
+            if feat == "e":
+                g_data_src = g.edata
+            else:
+                g_data_src = g.ndata
+
+            g_data_src[f'{feat}_1'] = g_data_src[f'{feat}_t']
+
+        if visualize:
+
+            # currently, traj_frames[key] is a list of lists. each sublist contains the frame for every molecule in the batch
+            # we want to rearrange this so that traj_frames is a list of dictionaries, where each dictionary contains the frames for a single molecule
+            reshaped_traj_frames = []
+            for mol_idx in range(g.batch_size):
+                molecule_dict = {}
+                for feat in traj_frames.keys():
+                    feat_traj = []
+                    n_frames = len(traj_frames[feat])
+                    for frame_idx in range(n_frames):
+                        feat_traj.append(traj_frames[feat][frame_idx][mol_idx])
+                    molecule_dict[feat] = torch.stack(feat_traj)
+                reshaped_traj_frames.append(molecule_dict)
+
+
+            return g, reshaped_traj_frames
+        
+        return g
 
 class NodePositionUpdate(nn.Module):
 

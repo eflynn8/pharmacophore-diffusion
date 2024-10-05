@@ -1,7 +1,8 @@
 import torch
 import dgl
+from typing import Dict
 
-from pharmacoforge.utils import get_batch_info, get_edges_per_batch
+from pharmacoforge.utils import get_batch_info, get_edges_per_batch, copy_graph
 from torch_cluster import radius_graph, knn_graph, knn, radius
 
 def remove_com(protpharm_graphs: dgl.DGLHeteroGraph, 
@@ -98,3 +99,29 @@ def remove_pharm_edges(g: dgl.DGLHeteroGraph) -> dgl.DGLHeteroGraph:
     g.set_batch_num_edges(batch_num_edges)
 
     return g
+
+def translate_pharmacophore_to_init_frame(
+        g:dgl.DGLHeteroGraph, 
+        init_prot_com: torch.Tensor, 
+        batch_idxs: Dict[str, torch.Tensor],
+        normalization_constant: float = None):
+    
+    #make a copy of g
+    g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
+
+    #unnormalize the features if necessary
+    if normalization_constant is not None:
+        g_frame.nodes['pharm'].data['h_0'] = g_frame.nodes['pharm'].data['h_0'] * normalization_constant
+
+    #move features back to initial frame of reference
+    prot_com = dgl.readout_nodes(g_frame, feat='x_0', ntype='prot', op='mean')
+    delta=init_prot_com-prot_com
+    delta = delta[batch_idxs['pharm']]
+    g_frame.nodes['pharm'].data['x_t'] = g_frame.nodes['pharm'].data['x_t']+delta
+
+    g_frame=g_frame.to('cpu')
+    pharm_pos, pharm_feat =[],[]
+    for g_i in dgl.unbatch(g_frame):
+        pharm_pos.append(g_i.nodes['pharm'].data['x_t'])
+        pharm_feat.append(g_i.nodes['pharm'].data['h_t'])
+    return pharm_pos, pharm_feat

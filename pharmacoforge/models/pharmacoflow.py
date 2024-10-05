@@ -44,8 +44,8 @@ class PharmacoFlow(nn.Module):
 
         self.loss_ignore_idx = -10
         self.loss_fns = {
-            'h': nn.CrossEntropyLoss(reduction='mean', ignore_index=self.loss_ignore_idx),
-            'x': nn.MSELoss(reduction='mean'),
+            'h': nn.CrossEntropyLoss(reduction=reduction, ignore_index=self.loss_ignore_idx),
+            'x': nn.MSELoss(reduction=reduction),
         }
 
     

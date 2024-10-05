@@ -229,28 +229,6 @@ class PharmacoForge(pl.LightningModule):
 
         return metrics
         
-
-    def get_pos_feat_for_visual(self, g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor, batch_idxs: Dict[str, torch.Tensor]):
-        #make a copy of g
-        g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
-
-        #unnormalize the features
-        g_frame = self.unnormalize(g_frame)
-
-        #move features back to initial frame of reference
-        prot_com = dgl.readout_nodes(g_frame, feat='x_0', ntype='prot', op='mean')
-        delta=init_prot_com-prot_com
-        delta = delta[batch_idxs['pharm']]
-        g_frame.nodes['pharm'].data['x_t'] = g_frame.nodes['pharm'].data['x_t']+delta
-
-        g_frame=g_frame.to('cpu')
-        pharm_pos, pharm_feat =[],[]
-        for g_i in dgl.unbatch(g_frame):
-            pharm_pos.append(g_i.nodes['pharm'].data['x_t'])
-            pharm_feat.append(g_i.nodes['pharm'].data['h_t'])
-        return pharm_pos, pharm_feat
-
-
     @torch.no_grad()
     def sample(self,  ref_graphs: List[dgl.DGLHeteroGraph], n_pharms: List[List[int]], max_batch_size: int = 32, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool=False):
         """Samples pharmacophores for multiple receptors, allowing complete specification of the number of pharmacophores to sample for each pocket and the number of centers in each pharmacophore.
