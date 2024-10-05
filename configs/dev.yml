@@ -65,7 +65,10 @@ dataset:
   
   
 graph:
+  # TODO: cleaner graph specification
   graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
+  ff_k: 0 # when this is zero, a radius graph from graph_cutoffs is used
+  pf_k: 5
 
 pharmacoforge:
   model_class: flow-matching
@@ -111,8 +114,6 @@ dynamics:
   n_hidden_scalars: 128
   message_norm: 'mean'
   dropout: 0.1
-  ff_k: 0
-  pf_k: 5
   n_message_gvps: 3 # the number of GVPs to chain together for the message function
   n_update_gvps: 2 # the number of GVPs to chain together for the update function
   n_noise_gvps: 4 # the number of GVPs to chain together for the noise prediction block

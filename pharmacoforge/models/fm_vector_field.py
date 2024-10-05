@@ -5,6 +5,7 @@ from typing import Dict, Union, List, Tuple
 
 from pharmacoforge.utils.embedding import get_time_embedding
 from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP, _norm_no_nan, _rbf
+from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges
 
 class FMVectorField(nn.Module):
 
@@ -31,6 +32,7 @@ class FMVectorField(nn.Module):
                 time_embedding_dim: int = 1,
                 type_embedding_dim: int = 64,
                 conv_config: dict = {},
+                graph_config: dict = {}
     ):
         super().__init__()
 
@@ -46,6 +48,7 @@ class FMVectorField(nn.Module):
         self.type_embedding_dim = type_embedding_dim
         self.rbf_dmax = conv_config['rbf_dmax']
         self.rbf_dim = conv_config['rbf_dim']
+        self.graph_config = graph_config
 
 
         self.scalar_embedding_fns = nn.ModuleDict({})
@@ -110,7 +113,9 @@ class FMVectorField(nn.Module):
                 batch_idxs: Dict[str, torch.Tensor],
                 apply_softmax: bool = False):
 
-        # TODO: add edges to graph
+        # remove pharm edges, add new ones
+        g = remove_pharm_edges(g)
+        g = add_pharm_edges(g, batch_idxs['pharm'], batch_idxs['prot'], self.graph_config)
 
         # get scalar feature embeddings
         scalar_feats = {}
@@ -174,10 +179,14 @@ class FMVectorField(nn.Module):
         if apply_softmax:
             ph_type_logits = torch.softmax(ph_type_logits, dim=-1)
 
+        # collect outputs
         dst_dict = {
             'h': ph_type_logits,
             'x': conv_feats['pharm'][1]
         }
+
+        # remove pharm edges
+        remove_pharm_edges(g)
 
         return dst_dict
     

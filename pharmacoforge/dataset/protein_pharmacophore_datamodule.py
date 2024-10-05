@@ -18,12 +18,14 @@ class CrossdockedDataModule(pl.LightningDataModule):
                  dataset_config: dict, 
                  batch_size: int,
                  num_workers: int,
-                 validation_splits: List[int] = [],):
+                 validation_splits: List[int] = [],
+                 model_class='diffusion'):
         
         super().__init__()
         self.dataset_config = dataset_config
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.model_class = model_class
 
         if len(validation_splits) == 0:
             raise NotImplementedError("training without a validation split has not yet been implemented")
@@ -55,10 +57,19 @@ class CrossdockedDataModule(pl.LightningDataModule):
     def setup(self, stage: str='fit'):
 
         if stage == 'fit':
-            self.train_dataset = ProteinPharmacophoreDataset(name='train', split_idxs=self.train_split_idxs, **self.dataset_config)
-            self.val_dataset = ProteinPharmacophoreDataset(name='val', split_idxs=self.val_split_idxs, **self.dataset_config)
+            self.train_dataset = ProteinPharmacophoreDataset(name='train', 
+                                                             split_idxs=self.train_split_idxs, 
+                                                             model_class=self.model_class, 
+                                                             **self.dataset_config)
+            self.val_dataset = ProteinPharmacophoreDataset(name='val', 
+                                                           split_idxs=self.val_split_idxs, 
+                                                           model_class=self.model_class, 
+                                                           **self.dataset_config)
         if stage == 'test':
-            self.val_dataset = ProteinPharmacophoreDataset(name='val', split_idxs=self.val_split_idxs, **self.dataset_config)
+            self.val_dataset = ProteinPharmacophoreDataset(name='val', 
+                                                           split_idxs=self.val_split_idxs, 
+                                                           model_class=self.model_class, 
+                                                           **self.dataset_config)
     
     def train_dataloader(self):
         return get_dataloader(self.train_dataset, self.batch_size, self.num_workers)

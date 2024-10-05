@@ -38,9 +38,11 @@ def data_module_from_config(config: dict) -> CrossdockedDataModule:
     dataset_config = config['dataset']
     graph_cutoffs = config['graph']['graph_cutoffs']
     dataset_config['graph_cutoffs'] = graph_cutoffs
+    model_class = config['pharmacoforge'].get('model_class', 'diffusion')
     
     data_module = CrossdockedDataModule(dataset_config=config['dataset'], 
         batch_size=config['training']['batch_size'], 
         num_workers=config['training']['num_workers'], 
-        validation_splits=config['training']['validation_splits'])
+        validation_splits=config['training']['validation_splits'],
+        model_class=model_class)
     return data_module

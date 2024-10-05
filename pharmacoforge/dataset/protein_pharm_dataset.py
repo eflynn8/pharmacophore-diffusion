@@ -192,8 +192,10 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         # if we are doing flow matching, sample the prior here and do alignment for positons
         if self.model_class == 'flow-matching':
 
+            # note here all of my variables and data keys use diffusion time
+
             # all pharmacophore types are set to the mask token
-            complex_graph['pharm'].data['h_1'] = torch.ones_like(complex_graph['pharm'].data['h_0'])*len(self.prot_elements)
+            complex_graph['pharm'].data['h_1'] = torch.ones_like(complex_graph['pharm'].data['h_0'])*len(self.ph_type_map)
 
             # get ground-truth pharmacophore positions
             x_0 = complex_graph['pharm'].data['x_0']

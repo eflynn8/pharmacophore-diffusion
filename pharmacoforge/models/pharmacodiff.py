@@ -46,7 +46,7 @@ class PharmacoDiff(nn.Module):
         # create noise schedule and dynamics model
         self.gamma = PredefinedNoiseSchedule(noise_schedule='polynomial_2', timesteps=n_timesteps, precision=precision)
 
-        self.dynamics = PharmRecDynamicsGVP(pharm_nf,rec_nf,**graph_config,**dynamics_config)
+        self.dynamics = PharmRecDynamicsGVP(pharm_nf,rec_nf, graph_config=graph_config, **dynamics_config)
 
 
     def noised_representation(self, g: dgl.DGLHeteroGraph, pharm_batch_idx: torch.Tensor, prot_batch_idx: torch.Tensor,
