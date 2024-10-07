@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch.distributions.categorical import Categorical
 import dgl
 from typing import Dict, Union, List, Tuple, Callable
 from tqdm import tqdm
@@ -7,6 +9,8 @@ from tqdm import tqdm
 from pharmacoforge.utils.embedding import get_time_embedding
 from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP, _norm_no_nan, _rbf
 from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges
+from pharmacoforge.utils.ctmc_utils import purity_sampling
+
 
 class FMVectorField(nn.Module):
 
@@ -247,7 +251,6 @@ class FMVectorField(nn.Module):
         batch_idxs: Dict[str, torch.Tensor],
         n_timesteps: int, 
         visualize=False, 
-        dfm_type='campbell',
         stochasticity=None, 
         high_confidence_threshold=None,
         cat_temp_func=None,
@@ -269,7 +272,7 @@ class FMVectorField(nn.Module):
 
         # get the corresponding alpha values for each timepoint
         # TODO: implement interpolant scheduler
-        kappa_t = t
+        kappa_t = torch.stack([t,t], dim=-1) # has shape (n_timetsteps, n_features)
         kappa_t_prime = torch.ones_like(kappa_t)
 
         # set x_t = x_0 (flow matching time in comments but diffusion time in data keys)
@@ -292,9 +295,9 @@ class FMVectorField(nn.Module):
             # get the next timepoint (s) and the current timepoint (t)
             s_i = t[s_idx]
             t_i = t[s_idx - 1]
-            alpha_t_i = kappa_t[s_idx - 1]
-            alpha_s_i = kappa_t[s_idx]
-            alpha_t_prime_i = kappa_t_prime[s_idx - 1]
+            kappa_t_i = kappa_t[s_idx - 1]
+            kappa_s_i = kappa_t[s_idx]
+            kappa_t_prime_i = kappa_t_prime[s_idx - 1]
 
             # determine if this is the last integration step
             if s_idx == t.shape[0] - 1:
@@ -303,8 +306,8 @@ class FMVectorField(nn.Module):
                 last_step = False
 
             # compute next step and set x_t = x_s
-            g = self.step(g, s_i, t_i, alpha_t_i, alpha_s_i, 
-                alpha_t_prime_i, 
+            g = self.step(g, s_i, t_i, kappa_t_i, kappa_s_i, 
+                kappa_t_prime_i, 
                 batch_idxs=batch_idxs,
                 cat_temp_func=cat_temp_func,
                 stochasticity=stochasticity, 
@@ -315,28 +318,19 @@ class FMVectorField(nn.Module):
                 for feat in 'xh':
 
                     frame = g.nodes['pharm'][f'{feat}_t'].detach().cpu()
-                    if feat == 'e':
-                        split_sizes = g.batch_num_edges()
-                    else:
-                        split_sizes = g.batch_num_nodes()
+                    split_sizes = g.batch_num_nodes(ntype='pharm')
                     split_sizes = split_sizes.detach().cpu().tolist()
-                    frame = g_data_src[f'{feat}_t'].detach().cpu()
+                    frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
                     frame = torch.split(frame, split_sizes)
                     traj_frames[feat].append(frame)
 
-                    ep_frame = g_data_src[f'{feat}_1_pred'].detach().cpu()
+                    ep_frame = g.nodes['pharm'].data[f'{feat}_0_pred'].detach().cpu()
                     ep_frame = torch.split(ep_frame, split_sizes)
-                    traj_frames[f'{feat}_1_pred'].append(ep_frame)
+                    traj_frames[f'{feat}_0_pred'].append(ep_frame)
 
         # set x_1 = x_t
-        for feat in self.canonical_feat_order:
-
-            if feat == "e":
-                g_data_src = g.edata
-            else:
-                g_data_src = g.ndata
-
-            g_data_src[f'{feat}_1'] = g_data_src[f'{feat}_t']
+        for feat in 'xh':
+            g.nodes['pharm'].data[f'{feat}_0'] = g.nodes['pharm'].data[f'{feat}_t']
 
         if visualize:
 
@@ -352,11 +346,133 @@ class FMVectorField(nn.Module):
                         feat_traj.append(traj_frames[feat][frame_idx][mol_idx])
                     molecule_dict[feat] = torch.stack(feat_traj)
                 reshaped_traj_frames.append(molecule_dict)
-
-
-            return g, reshaped_traj_frames
         
+        if visualize:
+            return g, reshaped_traj_frames
+        else:
+            return g
+        
+
+    def step(self, 
+             g: dgl.DGLGraph, 
+             s_i: torch.Tensor, 
+             t_i: torch.Tensor,
+             kappa_t_i: torch.Tensor, 
+             kappa_s_i: torch.Tensor, 
+             kappa_t_prime_i: torch.Tensor,
+             batch_idxs: Dict[str, torch.Tensor],
+             cat_temp_func: Callable,
+             stochasticity: float,
+             high_confidence_threshold: float, 
+             last_step: bool = False,):
+
+        device = g.device
+
+        eta = stochasticity
+        hc_thresh = high_confidence_threshold
+        
+        # predict the destination of the trajectory given the current timepoint
+        dst_dict = self(
+            g, 
+            t=torch.full((g.batch_size,), t_i, device=g.device),
+            batch_idxs=batch_idxs,
+            apply_softmax=True,
+        )
+        
+        dt = s_i - t_i
+
+        # take integration step for positions
+        x_1 = dst_dict['x']
+        x_t = g.nodes['pharm'].data['x_t']
+        vf = self.vector_field(x_t, x_1, kappa_t_i[0], kappa_t_prime_i[0])
+        g.nodes['pharm'].data['x_t'] = x_t + dt*vf
+
+        # record predicted endpoint for visualization
+        g.ndata['x_1_pred'] = x_1.detach().clone()
+
+        # take integration step for pharmacphore types
+        ht = g.nodes['pharm'].data[f'h_t'] # has shape (num_nodes,1)
+
+        p_s_1 = dst_dict['h']
+        temperature = cat_temp_func(t_i)
+        p_s_1 = F.softmax(torch.log(p_s_1)/temperature, dim=-1) # log probabilities
+
+        ht, h_1_sampled = \
+        self.campbell_step(p_1_given_t=p_s_1, 
+                        xt=ht, 
+                        stochasticity=eta, 
+                        hc_thresh=hc_thresh, 
+                        kappa_t=kappa_t_i[1], 
+                        kappa_t_prime=kappa_t_prime_i[1],
+                        dt=dt, 
+                        batch_size=g.batch_size, 
+                        batch_num_nodes=g.batch_num_nodes('pharm'), 
+                        n_classes=self.n_pharm_types+1,
+                        mask_index=self.n_pharm_types,
+                        last_step=last_step,
+                        batch_idx=batch_idxs['pharm'],
+                        )
+        
+        # record the updated pharmacophore types
+        g.nodes['pharm'].data[f'h_t'] = ht
+
+        # record predicted final pharmacophore types for visualization
+        g.nodes['pharm'].data[f'h_0_pred'] = h_1_sampled
+
         return g
+
+        
+    def campbell_step(self, p_1_given_t: torch.Tensor,
+                      xt: torch.Tensor, 
+                      stochasticity: float, 
+                      hc_thresh: float, 
+                      kappa_t: float, 
+                      kappa_t_prime: float,
+                      dt,
+                      batch_size: int,
+                      batch_num_nodes: torch.Tensor,
+                      n_classes: int,
+                      mask_index:int,
+                      last_step: bool, 
+                      batch_idx: torch.Tensor,
+):
+        x1 = Categorical(p_1_given_t).sample() # has shape (num_nodes,)
+
+        unmask_prob = dt*( kappa_t_prime + stochasticity*kappa_t  ) / (1 - kappa_t)
+        mask_prob = dt*stochasticity
+
+        unmask_prob = torch.clamp(unmask_prob, min=0, max=1)
+        mask_prob = torch.clamp(mask_prob, min=0, max=1)
+
+        # sample which nodes will be unmasked
+        if hc_thresh > 0:
+            # select more high-confidence predictions for unmasking than low-confidence predictions
+            will_unmask = purity_sampling(
+                xt=xt, x1=x1, x1_probs=p_1_given_t, unmask_prob=unmask_prob,
+                mask_index=mask_index, batch_size=batch_size, batch_num_nodes=batch_num_nodes,
+                node_batch_idx=batch_idx, hc_thresh=hc_thresh, device=xt.device)
+        else:
+            # uniformly sample nodes to unmask
+            will_unmask = torch.rand(xt.shape[0], device=xt.device) < unmask_prob
+            will_unmask = will_unmask * (xt == mask_index) # only unmask nodes that are currently masked
+
+        if not last_step:
+            # compute which nodes will be masked
+            will_mask = torch.rand(xt.shape[0], device=xt.device) < mask_prob
+            will_mask = will_mask * (xt != mask_index) # only mask nodes that are currently unmasked
+
+            # mask the nodes
+            xt[will_mask] = mask_index
+
+        # unmask the nodes
+        xt[will_unmask] = x1[will_unmask]
+
+        return xt, x1
+    
+    def vector_field(self, x_t, x_1, kappa_t, kappa_t_prime):
+        vf = kappa_t_prime/(1 - kappa_t) * (x_1 - x_t)
+        return vf
+  
 
 class NodePositionUpdate(nn.Module):
 

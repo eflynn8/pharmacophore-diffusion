@@ -23,11 +23,7 @@ class SampledPharmacophore:
         self.n_ph_centers = self.ph_coords.shape[0]
 
         # unpack trajectory frames if they were passed
-        if traj_frames is None:
-            self.pos_frames = None
-            self.feat_frames = None
-        else:
-            self.pos_frames, self.feat_frames = traj_frames
+        self.traj_frames = traj_frames
 
         assert len(pharm_type_map) == len(self.type_idx_to_elem), f"pharm_type_map must have {len(self.type_idx_to_elem)} elements"
 
@@ -52,17 +48,25 @@ class SampledPharmacophore:
         with open(filename, 'w') as f:
             f.write(out)
 
-    def traj_to_xyz(self, filename: str = None):
+    def traj_to_xyz(self, filename: str = None, xt=True):
 
-        if self.pos_frames is None:
-            raise ValueError("Cannot write trajectory because no trajectory frames were passed to the SampledPharmacophore object")
+        if xt:
+            pos_frames = self.traj_frames['x']
+            feat_frames = self.traj_frames['h']
+        else:
+            pos_frames = self.traj_frames['x_0_pred']
+            feat_frames = self.traj_frames['h_0_pred']
+
+        if len(feat_frames.shape) == 3:
+            frame_type_idxs = feat_frames.argmax(dim=2)
+        else:
+            frame_type_idxs = feat_frames
 
         out = ""
-        n_frames = self.pos_frames.shape[0]
-        frame_type_idxs = self.feat_frames.argmax(dim=2)
+        n_frames = pos_frames.shape[0]
         for i in range(n_frames):
             frame_types = [self.pharm_type_map[int(idx)] for idx in frame_type_idxs[i]]
-            out += self.pharm_to_xyz(self.pos_frames[i], frame_types)
+            out += self.pharm_to_xyz(pos_frames[i], frame_types)
 
         if filename is None:
             return out

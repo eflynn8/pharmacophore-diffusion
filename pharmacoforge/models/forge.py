@@ -230,7 +230,14 @@ class PharmacoForge(pl.LightningModule):
         return metrics
         
     @torch.no_grad()
-    def sample(self,  ref_graphs: List[dgl.DGLHeteroGraph], n_pharms: List[List[int]], max_batch_size: int = 32, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool=False):
+    def sample(self,  
+               ref_graphs: List[dgl.DGLHeteroGraph], 
+               n_pharms: List[List[int]], 
+               max_batch_size: int = 32, 
+               init_pharm_com: torch.Tensor = None, 
+               visualize_trajectory: bool=False,
+               n_timesteps: int = 100
+        ):
         """Samples pharmacophores for multiple receptors, allowing complete specification of the number of pharmacophores to sample for each pocket and the number of centers in each pharmacophore.
 
         Args:
@@ -279,7 +286,11 @@ class PharmacoForge(pl.LightningModule):
             init_coms = init_coms.to(self.device)
             
             # sample pharmacophores
-            batch_pharms = self.gen_model.sample(g, init_pharm_com=init_coms, visualize_trajectory=visualize_trajectory)
+            batch_pharms = self.gen_model.sample(g, 
+                init_pharm_com=init_coms, 
+                visualize=visualize_trajectory,
+                n_timesteps=n_timesteps
+            )
 
             sampled_pharms.extend(batch_pharms)
 

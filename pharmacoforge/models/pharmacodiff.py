@@ -246,8 +246,9 @@ class PharmacoDiff(nn.Module):
         #sample initial positions/features of pharmacophore features
         g.nodes['pharm'].data['x_t'] = torch.randn(g.num_nodes('pharm'), 3, device=g.device)
         g.nodes['pharm'].data['h_t'] = torch.randn(g.num_nodes('pharm'), self.n_pharm_feats, device=g.device)
+        return g
 
-    def sample(self, g:dgl.DGLHeteroGraph, init_pharm_com: torch.Tensor = None, visualize_trajectory: bool = False):
+    def sample(self, g:dgl.DGLHeteroGraph, init_pharm_com: torch.Tensor = None, visualize: bool = False, **kwargs):
         device = g.device
         batch_size = g.batch_size
 
@@ -261,18 +262,24 @@ class PharmacoDiff(nn.Module):
         if init_pharm_com is None:
             init_pharm_com=init_prot_com
 
-        #move the protein to the pharmacophore com
+        # translate the protein so that the origin corresponds to the desired pharmacophore COM
         g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]
 
         # sample prior for pharmacophore center positons + types
         g = self.sample_prior(g)
 
-        if visualize_trajectory:
+        # remove pharmacophore COM from system
+        g = remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
 
-            pharm_pos_frames,pharm_feat_frames = [],[] 
-            pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g, init_prot_com, batch_idxs)
-            pharm_pos_frames.append(pharm_pos)
-            pharm_feat_frames.append(pharm_feats)
+        if visualize:
+            traj_frames = {}
+            for feat in 'xh':
+                split_sizes = g.batch_num_nodes(ntype='pharm')
+                split_sizes = split_sizes.detach().cpu().tolist()
+                init_frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
+                init_frame = torch.split(init_frame, split_sizes)
+                traj_frames[feat] = [ init_frame ]
+                traj_frames[f'{feat}_0_pred'] = []
 
         # Iteratively sample p(z_s | z_t) for t = 1, ..., T, with s = t - 1.
         for s in reversed(range(self.n_timesteps)):
@@ -283,10 +290,15 @@ class PharmacoDiff(nn.Module):
 
             g=self.sample_p_zs_given_zt(s_arr, t_arr, g, batch_idxs)
 
-            if visualize_trajectory:
-                pharm_pos,pharm_feats = self.get_pos_feat_for_visual(g, init_prot_com, batch_idxs)
-                pharm_pos_frames.append(pharm_pos)
-                pharm_feat_frames.append(pharm_feats)
+            if visualize:
+                pharm_pos,pharm_feats = translate_pharmacophore_to_init_frame(g, batch_idxs, init_prot_com,
+                                        normalization_constant=self.pharm_feat_norm_constant)
+                pharm_frame = {
+                    'x': pharm_pos,
+                    'h': pharm_feats
+                }
+                for feat in 'xh':
+                    traj_frames[feat].append(pharm_frame[feat])
 
         # set the t=t features to t=0 features
         for feat in 'xh':
@@ -299,17 +311,19 @@ class PharmacoDiff(nn.Module):
 
         g=self.unnormalize(g)
 
-        if visualize_trajectory:
+        if visualize:
             # reshape trajectory frames
 
-            pharm_pos_frames = list(zip(*pharm_pos_frames))
-            pharm_feat_frames = list(zip(*pharm_feat_frames))
+            per_mol_trajs = {}
+            for feat in traj_frames:
+                per_mol_trajs[feat] = list(zip(*traj_frames[feat]))
 
-            trajs = []
-            for batch_idx in range(len(pharm_pos_frames)):
-                pos_frames = torch.stack(pharm_pos_frames[batch_idx], dim=0)
-                feat_frames = torch.stack(pharm_feat_frames[batch_idx], dim=0)
-                trajs.append((pos_frames, feat_frames))
+            mol_dicts = []
+            for mol_idx in range(batch_size):
+                mol_dict = {}
+                for feat in per_mol_trajs:
+                    mol_dict[feat] = torch.stack(per_mol_trajs[feat][mol_idx], dim=0)
+                mol_dicts.append(mol_dict)
 
 
         g=g.to('cpu')
@@ -319,31 +333,11 @@ class PharmacoDiff(nn.Module):
                 'g': g_i, 
                 'pharm_type_map': self.ph_type_map,
             }
-            if visualize_trajectory:
-                kwargs['traj_frames'] = trajs[gidx]
+            if visualize:
+                kwargs['traj_frames'] = mol_dicts[gidx]
             sampled_pharms.append(SampledPharmacophore(**kwargs))
 
         return sampled_pharms
-    
-    def get_pos_feat_for_visual(self, g:dgl.DGLHeteroGraph, init_prot_com: torch.Tensor, batch_idxs: Dict[str, torch.Tensor]):
-        #make a copy of g
-        g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
-
-        #unnormalize the features
-        g_frame = self.unnormalize(g_frame)
-
-        #move features back to initial frame of reference
-        prot_com = dgl.readout_nodes(g_frame, feat='x_0', ntype='prot', op='mean')
-        delta=init_prot_com-prot_com
-        delta = delta[batch_idxs['pharm']]
-        g_frame.nodes['pharm'].data['x_t'] = g_frame.nodes['pharm'].data['x_t']+delta
-
-        g_frame=g_frame.to('cpu')
-        pharm_pos, pharm_feat =[],[]
-        for g_i in dgl.unbatch(g_frame):
-            pharm_pos.append(g_i.nodes['pharm'].data['x_t'])
-            pharm_feat.append(g_i.nodes['pharm'].data['h_t'])
-        return pharm_pos, pharm_feat
 
 
 # noise schedules are taken from DiffSBDD: https://github.com/arneschneuing/DiffSBDD

@@ -7,6 +7,7 @@ from pathlib import Path
 from pharmacoforge.utils import get_batch_info, get_nodes_per_batch, copy_graph, get_batch_idxs
 from pharmacoforge.utils.graph_ops import remove_com
 from pharmacoforge.models.fm_vector_field import FMVectorField
+from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
 
 class PharmacoFlow(nn.Module):
 
@@ -126,6 +127,66 @@ class PharmacoFlow(nn.Module):
         kappa_prime = 1
         weights = kappa_prime / (1 - kappa)
         weights = torch.clamp(weights, min=0.05, max=1.5)
+
+    def sample_prior(self, g: dgl.DGLHeteroGraph) -> dgl.DGLHeteroGraph:
+
+        g.nodes['pharm'].data['h_1'] = torch.ones(
+            g.num_nodes('pharm'), 1, 
+            dtype=torch.long, 
+            device=g.device) * self.n_pharm_types
+        g.nodes['pharm'].data['x_1'] = torch.randn(g.num_nodes('pharm'), 3, device=g.device)
+        return g
+    
+    def sample(self, g, 
+               init_pharm_com: torch.Tensor = None, 
+               visualize: bool = False, 
+               n_timesteps: int = 100,
+               **kwargs
+        ):
+
+        # TODO: everything from here up to self.sample_prior is identical to the sample function of PharmacoDiff
+        # we should refactor this into a common base class
+        device = g.device
+        batch_size = g.batch_size
+
+        #get initial protein com 
+        init_prot_com = dgl.readout_nodes(g, feat='x_0', ntype='prot', op='mean')
+
+        #get batch indices of every node
+        batch_idxs = get_batch_idxs(g)
+
+        #Use the receptor pocket COM if pharmacophore COM not provided
+        if init_pharm_com is None:
+            init_pharm_com=init_prot_com
+
+        # translate the protein so that the origin corresponds to the desired pharmacophore COM
+        g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]
+
+        # sample prior for pharmacophore center positons + types
+        g = self.sample_prior(g)
+
+        itg_result = self.vector_field.integrate(g, 
+                        batch_idxs=batch_idxs, 
+                        n_timesteps=n_timesteps, 
+                        visualize=visualize,
+                        **kwargs)
+        if visualize:
+            g, traj_frames = itg_result
+        else:
+            g = itg_result
+
+        g=g.to('cpu')
+        sampled_pharms: List[SampledPharmacophore] = []
+        for gidx, g_i in enumerate(dgl.unbatch(g)):
+            kwargs = {
+                'g': g_i, 
+                'pharm_type_map': self.ph_type_map,
+            }
+            if visualize:
+                kwargs['traj_frames'] = traj_frames[gidx]
+            sampled_pharms.append(SampledPharmacophore(**kwargs))
+
+        return sampled_pharms
 
 
         
