@@ -16,14 +16,14 @@ from torch.nn.functional import one_hot
 from tqdm import trange
 from typing import Dict, Iterable, List
 
-from dataset.protein_pharm_dataset import build_initial_complex_graph
-from constants import ph_idx_to_type
-from config_utils.load_from_config import model_from_config, data_module_from_config
-from dataset.receptor_utils import PocketSelector, write_pocket_file
-from analysis.pharm_builder import SampledPharmacophore
-from analysis.metrics import SampleAnalyzer
-from models.pharmacodiff import PharmacophoreDiff
-from utils import write_pharmacophore_file, copy_graph, get_prot_atom_ph_type_maps
+from pharmacoforge.dataset.protein_pharm_dataset import build_initial_complex_graph
+from pharmacoforge.constants import ph_idx_to_type
+from pharmacoforge.config_utils.load_from_config import model_from_config, data_module_from_config
+from pharmacoforge.dataset.receptor_utils import PocketSelector, write_pocket_file
+from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
+from pharmacoforge.analysis.metrics import SampleAnalyzer
+from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.utils import write_pharmacophore_file, copy_graph, get_prot_atom_ph_type_maps
 
 
 def parse_arguments():
