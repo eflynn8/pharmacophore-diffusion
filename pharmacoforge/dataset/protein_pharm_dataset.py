@@ -179,7 +179,7 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
                 pharm_pos = pharm_pos[pharm_idxs]
                 pharm_feat = pharm_feat[pharm_idxs]
 
-        complex_graph = build_initial_complex_graph(prot_pos, prot_feat, pharm_atom_positions=pharm_pos, pharm_atom_features=pharm_feat, prot_ph_pos=prot_ph_pos, prot_ph_feat=prot_ph_feat, graph_config=self.graph_config)
+        g = build_initial_complex_graph(prot_pos, prot_feat, pharm_atom_positions=pharm_pos, pharm_atom_features=pharm_feat, prot_ph_pos=prot_ph_pos, prot_ph_feat=prot_ph_feat, graph_config=self.graph_config)
 
         #complex_graph.nodes['pharm'].data['h_0'] = pharm_feat
         
@@ -187,7 +187,7 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         # for ntype in ['pharm', 'prot', 'prot_ph']:
         if self.model_class == 'diffusion':
             for ntype in ['pharm', 'prot']:
-                complex_graph.nodes[ntype].data['h_0'] = complex_graph.nodes[ntype].data['h_0'].float()
+                g.nodes[ntype].data['h_0'] = g.nodes[ntype].data['h_0'].float()
 
         # if we are doing flow matching, sample the prior here and do alignment for positons
         if self.model_class == 'flow-matching':
@@ -195,10 +195,10 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
             # note here all of my variables and data keys use diffusion time
 
             # all pharmacophore types are set to the mask token
-            complex_graph['pharm'].data['h_1'] = torch.ones_like(complex_graph['pharm'].data['h_0'])*len(self.ph_type_map)
+            g.nodes['pharm'].data['h_1'] = torch.ones_like(g.nodes['pharm'].data['h_0'])*len(self.ph_type_map)
 
             # get ground-truth pharmacophore positions
-            x_0 = complex_graph['pharm'].data['x_0']
+            x_0 = g.nodes['pharm'].data['x_0']
 
             # sample gaussian with zero COM
             x_1 = com_free_gaussian(*x_0.shape)
@@ -209,10 +209,10 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
             # perform equivarint-OT alignment
             x_1 = align_prior(x_1, x_0, permutation=True, rigid_body=True)
 
-            complex_graph.nodes['pharm'].data['x_1'] = x_1
+            g.nodes['pharm'].data['x_1'] = x_1
 
 
-        return complex_graph
+        return g
 
     def __len__(self):
         return self.prot_idx.shape[0]

@@ -59,13 +59,13 @@ class PharmacoFlow(nn.Module):
         batch_idxs = get_batch_idxs(g)
 
         # sample t for each graph in the batch
-        t = torch.rand(batch_size, device=device, dtype=float)
+        t = torch.rand(batch_size, device=device)
 
         # sample p_t(g|g_0,g_1)
         g = self.sample_conditional_path(g, t, batch_idxs)
 
         # predict final pharmacophore
-        dst_dict = self.vector_field(g, t)
+        dst_dict = self.vector_field(g, t, batch_idxs=batch_idxs)
 
         time_weights = self.loss_weights(t)
         if self.time_scaled_loss:
@@ -81,6 +81,7 @@ class PharmacoFlow(nn.Module):
                 xt = g.nodes['pharm'].data['h_t']
                 unmasked_at_t = xt != len(self.ph_type_map)
                 target[unmasked_at_t] = self.loss_ignore_idx
+                target = target.squeeze(-1).long()
 
             losses[key] = time_weights * self.loss_fns[key](dst_dict[key], target)
 
@@ -88,7 +89,13 @@ class PharmacoFlow(nn.Module):
             if self.time_scaled_loss:
                 losses[key] = losses[key].mean()
 
-        # TODO: fix loss names
+        # rename losses, for consistency with pharmacodiff convention
+        loss_name_map = {
+            'x': 'pos loss',
+            'h': 'feat loss',
+        }
+        for old_key, new_key in loss_name_map.items():
+            losses[new_key] = losses.pop(old_key)
 
         return losses
 
@@ -103,8 +110,8 @@ class PharmacoFlow(nn.Module):
         kappa_x = kappa_h
 
         # sample conditional path for pharmacophore types
-        h_t = g.nodes['pharm'].data['h_0']
-        is_masked = torch.rand(g.num_nodes('pharm'), device=device) > kappa_h
+        h_t = g.nodes['pharm'].data['h_0'].clone()
+        is_masked = torch.rand(g.num_nodes('pharm'), 1, device=device) > kappa_h
         h_t[is_masked] = self.n_pharm_types
         g.nodes['pharm'].data['h_t'] = h_t
 

@@ -659,7 +659,7 @@ class GVPMultiEdgeConv(nn.Module):
 
                 pos_feats = g.nodes[ntype].data["x"]
 
-                output_feats[ntype] = (scalar_feats, pos_feats, vec_feats)
+                output_feats[ntype] = [scalar_feats, pos_feats, vec_feats]
 
         return output_feats    
 

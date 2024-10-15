@@ -5,6 +5,7 @@ from torch.distributions.categorical import Categorical
 import dgl
 from typing import Dict, Union, List, Tuple, Callable
 from tqdm import tqdm
+import dgl.function as fn
 
 from pharmacoforge.utils.embedding import get_time_embedding
 from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP, _norm_no_nan, _rbf
@@ -100,7 +101,7 @@ class FMVectorField(nn.Module):
 
 
         # create embedding layers for pharmacophore and protein atom types
-        self.type_embeddings = nn.ModuleDict({})
+        self.type_embeddings = {}
         self.num_types_dict = {
             'pharm': n_pharm_types,
             'prot': rec_nf
@@ -108,9 +109,10 @@ class FMVectorField(nn.Module):
         for node_type in self.ntypes:
             num_types = self.num_types_dict[node_type] + 1 # +1 for mask token
             self.type_embeddings[node_type] = nn.Embedding(num_types, type_embedding_dim)
+        self.type_embedddings = nn.ModuleDict(self.type_embeddings)
 
         # create embedding functions for scalar features
-        self.node_embed_fns = nn.ModuleDict({})
+        self.node_embed_fns = {}
         for ntype in self.ntypes:
             self.node_embed_fns[ntype] = nn.Sequential(
                 nn.Linear(type_embedding_dim+time_embedding_dim, node_scalar_dim),
@@ -119,6 +121,7 @@ class FMVectorField(nn.Module):
                 nn.SiLU(),
                 nn.LayerNorm(node_scalar_dim)
             )
+        self.node_embed_fns = nn.ModuleDict(self.node_embed_fns)
 
         mid_layer_size = (node_scalar_dim+self.n_pharm_types)//2
         self.pharm_scalar_readout = nn.Sequential(
@@ -154,14 +157,17 @@ class FMVectorField(nn.Module):
         # get scalar feature embeddings
         scalar_feats = {}
         scalar_feats['prot'] = [
-            self.type_embeddings['prot'](g.nodes['prot'].data['h_0'])
+            self.type_embeddings['prot'](g.nodes['prot'].data['h_0'].squeeze(-1))
         ]
         scalar_feats['pharm'] = [
-            self.type_embeddings['pharm'](g.nodes['pharm'].data['h_t'])
+            self.type_embeddings['pharm'](g.nodes['pharm'].data['h_t'].squeeze(-1))
         ]
         for ntype in scalar_feats:
+            t_batch = t[batch_idxs[ntype]]
+            time_embedding = get_time_embedding(t_batch, self.time_embedding_dim)
+            scalar_feats[ntype].append(time_embedding)
             scalar_feats[ntype] = self.node_embed_fns[ntype](
-                torch.cat([scalar_feats[ntype], get_time_embedding(t, self.time_embedding_dim)], dim=-1)
+                torch.cat(scalar_feats[ntype], dim=-1)
             )
 
         # get position features
@@ -240,8 +246,8 @@ class FMVectorField(nn.Module):
                     g.nodes[dst_ntype].data['x_d'] = node_positions[dst_ntype]
 
                 g.apply_edges(fn.u_sub_v("x_d", "x_d", "x_diff"), etype=etype)
-                dij = _norm_no_nan(g.edata['x_diff'], keepdims=True) + 1e-8
-                x_diff = g.edata['x_diff'] / dij
+                dij = _norm_no_nan(g.edges[etype].data['x_diff'], keepdims=True) + 1e-8
+                x_diff = g.edges[etype].data['x_diff'] / dij
                 d = _rbf(dij.squeeze(1), D_max=self.rbf_dmax, D_count=self.rbf_dim)
         
         return x_diff, d
@@ -388,7 +394,7 @@ class FMVectorField(nn.Module):
         g.nodes['pharm'].data['x_t'] = x_t + dt*vf
 
         # record predicted endpoint for visualization
-        g.ndata['x_1_pred'] = x_1.detach().clone()
+        g.nodes['pharm'].data['x_0_pred'] = x_1.detach().clone()
 
         # take integration step for pharmacphore types
         ht = g.nodes['pharm'].data[f'h_t'] # has shape (num_nodes,1)
@@ -448,7 +454,10 @@ class FMVectorField(nn.Module):
         if hc_thresh > 0:
             # select more high-confidence predictions for unmasking than low-confidence predictions
             will_unmask = purity_sampling(
-                xt=xt, x1=x1, x1_probs=p_1_given_t, unmask_prob=unmask_prob,
+                xt=xt.squeeze(-1), 
+                x1=x1, 
+                x1_probs=p_1_given_t, 
+                unmask_prob=unmask_prob,
                 mask_index=mask_index, batch_size=batch_size, batch_num_nodes=batch_num_nodes,
                 node_batch_idx=batch_idx, hc_thresh=hc_thresh, device=xt.device)
         else:
@@ -458,14 +467,14 @@ class FMVectorField(nn.Module):
 
         if not last_step:
             # compute which nodes will be masked
-            will_mask = torch.rand(xt.shape[0], device=xt.device) < mask_prob
+            will_mask = torch.rand(xt.shape[0], 1, device=xt.device) < mask_prob
             will_mask = will_mask * (xt != mask_index) # only mask nodes that are currently unmasked
 
             # mask the nodes
             xt[will_mask] = mask_index
 
         # unmask the nodes
-        xt[will_unmask] = x1[will_unmask]
+        xt[will_unmask] = x1[will_unmask].unsqueeze(-1)
 
         return xt, x1
     

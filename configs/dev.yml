@@ -78,7 +78,7 @@ graph:
     ff: 'radius'
 
 pharmacoforge:
-  model_class: diffusion
+  model_class: flow-matching
 
 flow-matching:
   time_scaled_loss: False
@@ -96,10 +96,11 @@ flow-matching:
       n_message_gvps: 3
       n_update_gvps: 3
       n_expansion_gvps: 3
-      attention: False
-      n_kq_gvps: 3
-      s_kq_dim: 32
-      v_kq_dim: 32
+      # the next four arguments are strictly for graph attention, which is not currently implemented
+      # attention: False
+      # n_kq_gvps: 3
+      # s_kq_dim: 32
+      # v_kq_dim: 32
       message_norm: 100
       rbf_dmax: 16
       rbf_dim: 42

@@ -182,10 +182,6 @@ class PharmacoForge(pl.LightningModule):
             val = outputs.pop(key)
             outputs[f'{phase} {key}'] = val
 
-        # total error
-        outputs[phase+' total error']= outputs[phase+' position error'] + 1 - outputs[phase+' accuracy']
-        outputs[phase+' weighted total error']= outputs[phase+' weighted position error'] + 1 - outputs[phase+' weighted accuracy']
-
         # record epochs into training (enables easy alignemnt of training and validation metrics)
         outputs['epoch_exact'] = self.last_epoch_exact
         

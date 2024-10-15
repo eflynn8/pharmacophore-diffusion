@@ -8,7 +8,7 @@ You have to install the dependencies yourself. But, once you do, while you're in
 
 # TODO:
 - [ ] i have questions about pharm size selection in test.py
-- [ ] fix loss names in `PharmacoFlow.forward`
-- [ ] implemenet `PharmacoFlow.sample_and_analyze`, and also there should just be a PharmacoForge.sample_random_sizes?
+- [ ] there should just be a PharmacoForge.sample_random_sizes?
 - [ ] implement xhat trajectory saving for diffusion
-- [ ] better graph construction methods
+- [ ] add attention to GVPMultiEdgeConv
+- [ ] modality-dependent loss weights!
