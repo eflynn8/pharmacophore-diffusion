@@ -16,6 +16,7 @@ from typing import List
 class CrossdockedDataModule(pl.LightningDataModule):
     def __init__(self,
                  dataset_config: dict, 
+                 graph_config: dict,
                  batch_size: int,
                  num_workers: int,
                  validation_splits: List[int] = [],
@@ -26,6 +27,7 @@ class CrossdockedDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.model_class = model_class
+        self.graph_config = graph_config
 
         if len(validation_splits) == 0:
             raise NotImplementedError("training without a validation split has not yet been implemented")
@@ -59,16 +61,19 @@ class CrossdockedDataModule(pl.LightningDataModule):
         if stage == 'fit':
             self.train_dataset = ProteinPharmacophoreDataset(name='train', 
                                                              split_idxs=self.train_split_idxs, 
-                                                             model_class=self.model_class, 
+                                                             model_class=self.model_class,
+                                                             graph_config=self.graph_config, 
                                                              **self.dataset_config)
             self.val_dataset = ProteinPharmacophoreDataset(name='val', 
                                                            split_idxs=self.val_split_idxs, 
                                                            model_class=self.model_class, 
+                                                           graph_config=self.graph_config,
                                                            **self.dataset_config)
         if stage == 'test':
             self.val_dataset = ProteinPharmacophoreDataset(name='val', 
                                                            split_idxs=self.val_split_idxs, 
                                                            model_class=self.model_class, 
+                                                           graph_config=self.graph_config,
                                                            **self.dataset_config)
     
     def train_dataloader(self):

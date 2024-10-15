@@ -9,7 +9,6 @@ def model_from_config(config: dict, ckpt=None) -> PharmacoForge:
     # get the number of receptor atom features, ligand atom features, and keypoint features
     n_rec_feat = len(config['dataset']['prot_elements'])
     n_ph_types = len(config['dataset']['ph_type_map'])
-
     eval_config = config['training']['evaluation']
 
 
@@ -36,11 +35,11 @@ def model_from_config(config: dict, ckpt=None) -> PharmacoForge:
 def data_module_from_config(config: dict) -> CrossdockedDataModule:
 
     dataset_config = config['dataset']
-    graph_cutoffs = config['graph']['graph_cutoffs']
-    dataset_config['graph_cutoffs'] = graph_cutoffs
     model_class = config['pharmacoforge'].get('model_class', 'diffusion')
     
-    data_module = CrossdockedDataModule(dataset_config=config['dataset'], 
+    data_module = CrossdockedDataModule(
+        dataset_config=config['dataset'], 
+        graph_config=config['graph'],
         batch_size=config['training']['batch_size'], 
         num_workers=config['training']['num_workers'], 
         validation_splits=config['training']['validation_splits'],

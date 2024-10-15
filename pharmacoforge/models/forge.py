@@ -135,10 +135,6 @@ class PharmacoForge(pl.LightningModule):
         for loss_name in loss_names:
             total_loss += outputs[loss_name]
 
-        # total error
-        outputs[phase+' total error']= outputs[phase+' position error'] + 1 - outputs[phase+' accuracy']
-        outputs[phase+' weighted total error']= outputs[phase+' weighted position error'] + 1 - outputs[phase+' weighted accuracy']
-
         # sample pharmacopphores and analyze them, if necessary
         if epoch_exact - self.last_sample_marker >= self.sample_interval:
             ph_quality_metrics = self.sample_and_analyze()
@@ -213,7 +209,13 @@ class PharmacoForge(pl.LightningModule):
         self.eval()
 
         # sample pharmacophores
-        sampled_pharms = self.sample(pockets, n_pharms, max_batch_size=64, init_pharm_com=init_pharm_com, visualize_trajectory=False)
+        sampled_pharms = self.sample(pockets, 
+                                     n_pharms, 
+                                     max_batch_size=64, 
+                                     init_pharm_com=init_pharm_com, 
+                                     visualize_trajectory=False,
+                                     n_timesteps=100, # as of now, this only applies to flow-matching model, diffusoion always users 1000 steps
+        )
 
         self.train()
 
