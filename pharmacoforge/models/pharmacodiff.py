@@ -110,8 +110,8 @@ class PharmacoDiff(nn.Module):
         g = remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
         # sample timepoints for each item in the batch
-        t = torch.randint(0, self.gen_model.n_timesteps, size=(batch_size,), device=device).float() # timesteps
-        t = t / self.gen_model.n_timesteps
+        t = torch.randint(0, self.n_timesteps, size=(batch_size,), device=device).float() # timesteps
+        t = t / self.n_timesteps
 
 
         # sample epsilon for each ligand

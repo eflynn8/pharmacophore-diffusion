@@ -66,12 +66,19 @@ dataset:
   
 graph:
   # TODO: cleaner graph specification
-  graph_cutoffs: {'pp': 3.5, 'pf': 8, 'fp': 8, 'ff': 9}
-  ff_k: 0 # when this is zero, a radius graph from graph_cutoffs is used
-  pf_k: 5
+  radius: {'pp': 8, 'pf': 8, 'fp': 8, 'ff': 9}
+  knn: {'pp': 10, 'pf': 10, 'fp': 10, 'ff': 10}
+  krandom:
+    pp: 10
+  temp:
+    pp: 1.25
+  graph_types:
+    pp: 'random-knn'
+    pf: 'radius'
+    ff: 'radius'
 
 pharmacoforge:
-  model_class: flow-matching
+  model_class: diffusion
 
 flow-matching:
   time_scaled_loss: False
@@ -103,7 +110,6 @@ diffusion:
   n_timesteps: 100
   precision: 1.0e-5
   pharm_feat_norm_constant: 1
-  rl_dist_threshold: 0
   endpoint_param_feat: False
   endpoint_param_coord: False
   weighted_loss: False

@@ -2,6 +2,7 @@ from pharmacoforge.models.forge import PharmacoForge
 from pathlib import Path
 from pharmacoforge.dataset.protein_pharm_dataset import ProteinPharmacophoreDataset
 from pharmacoforge.dataset.protein_pharmacophore_datamodule import CrossdockedDataModule
+import yaml
 
 def model_from_config(config: dict, ckpt=None) -> PharmacoForge:
 
@@ -45,3 +46,8 @@ def data_module_from_config(config: dict) -> CrossdockedDataModule:
         validation_splits=config['training']['validation_splits'],
         model_class=model_class)
     return data_module
+
+def load_config(config_file: Path) -> dict:
+    with open(config_file, 'r') as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    return config

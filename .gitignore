@@ -6,6 +6,7 @@ data/crossdocked_raw
 samples/
 pyrightconfig.json
 runs*/
+dev_notebooks/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

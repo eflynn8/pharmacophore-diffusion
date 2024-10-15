@@ -57,8 +57,8 @@ class PharmacoForge(pl.LightningModule):
                                           rec_nf, 
                                           ph_type_map, 
                                           processed_data_dir, 
-                                          graph_config, 
-                                          dynamics_config,  
+                                          graph_config=graph_config, 
+                                          dynamics_config=dynamics_config,  
                                           **diffusion_config)
         elif model_class == 'flow-matching':
             self.gen_model = PharmacoFlow(
@@ -122,7 +122,7 @@ class PharmacoForge(pl.LightningModule):
         epoch_exact = self.current_epoch + batch_idx / self.num_training_batches()
 
         # step the learning rate scheduler
-        self.lr_scheduler.step(epoch_exact)
+        self.lr_scheduler.step_lr(epoch_exact)
         
         # forward pass, get losses and metrics
         outputs = self.forward(protpharm_graphs)
@@ -134,6 +134,7 @@ class PharmacoForge(pl.LightningModule):
         total_loss = 0
         for loss_name in loss_names:
             total_loss += outputs[loss_name]
+        outputs['total loss'] = total_loss
 
         # sample pharmacopphores and analyze them, if necessary
         if epoch_exact - self.last_sample_marker >= self.sample_interval:
@@ -164,7 +165,7 @@ class PharmacoForge(pl.LightningModule):
         phase='val'
 
         # forward pass, get losses and metrics
-        outputs = self.forward(protpharm_graphs,phase=phase)
+        outputs = self.forward(protpharm_graphs)
 
         # compute total loss
         # TODO: loss weights
@@ -173,6 +174,13 @@ class PharmacoForge(pl.LightningModule):
         total_loss = 0
         for loss_name in loss_names:
             total_loss += outputs[loss_name]
+        outputs['total loss'] = total_loss
+
+        # rename outputs to include phase
+        output_keys = list(outputs.keys())
+        for key in output_keys:
+            val = outputs.pop(key)
+            outputs[f'{phase} {key}'] = val
 
         # total error
         outputs[phase+' total error']= outputs[phase+' position error'] + 1 - outputs[phase+' accuracy']
@@ -288,7 +296,7 @@ class PharmacoForge(pl.LightningModule):
             init_coms = init_coms.to(self.device)
             
             # sample pharmacophores
-            batch_pharms = self.gen_model.sample(g, 
+            batch_pharms = self.gen_model.sample(batch_graphs, 
                 init_pharm_com=init_coms, 
                 visualize=visualize_trajectory,
                 n_timesteps=n_timesteps

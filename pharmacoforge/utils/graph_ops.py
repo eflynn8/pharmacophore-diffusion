@@ -39,36 +39,48 @@ def add_pharm_edges(g: dgl.DGLHeteroGraph,
 
     batch_num_nodes, batch_num_edges = get_batch_info(g)
     batch_size = g.batch_size
-
-    ff_k = graph_config.get('ff_k', 0)
-    pf_k = graph_config.get('pf_k', 0)
-    graph_cutoffs = graph_config['graph_cutoffs']
+    graph_types = graph_config['graph_types']
 
     # add pharm-pharm edges
-    if ff_k > 0:
+    if graph_types['ff'] == 'knn':
+        ff_k = graph_config['knn']['ff']
         ff_idxs = knn_graph(g.nodes['pharm'].data['x_t'], k=ff_k, batch=pharm_batch_idx)
-    else:
-        ff_idxs = radius_graph(g.nodes['pharm'].data['x_t'], r=graph_cutoffs['ff'], batch=pharm_batch_idx, max_num_neighbors=200)
+    elif graph_types['ff'] == 'radius':
+        ff_r = graph_config['radius']['ff']
+        ff_idxs = radius_graph(g.nodes['pharm'].data['x_t'], r=ff_r, batch=pharm_batch_idx, max_num_neighbors=200)
     g.add_edges(ff_idxs[0], ff_idxs[1], etype='ff')
 
     # add prot-pharm edges
-    if pf_k > 0:
+    if graph_types['pf'] == 'knn':
         ### Change to knn instead of knn_graph and check which idxs belong to prots and which to pharms
-        pf_idxs = knn(g.nodes['prot'].data['x_0'], g.nodes['pharm'].data['x_t'], k=pf_k, batch_x=prot_batch_idx, batch_y=pharm_batch_idx)
-        # print("VERIFY PF EDGES!")
-        # print("PF Idxs: ", pf_idxs)
-        ## The edge lists are flipped for knn vs radius
+        pf_k = graph_config['knn']['pf']
+        pf_idxs = knn(
+            g.nodes['prot'].data['x_0'], 
+            g.nodes['pharm'].data['x_t'], 
+            k=pf_k, 
+            batch_x=prot_batch_idx, 
+            batch_y=pharm_batch_idx)
+        # pf_idxs[0] -> pharmacophore nodes
+        # pf_idxs[1] -> protein nodes
         g.add_edges(pf_idxs[1], pf_idxs[0], etype='pf')
 
         # add pharm-prot edges  
         g.add_edges(pf_idxs[0], pf_idxs[1], etype='fp')
-    else:     
-        pf_idxs = radius(x=g.nodes['pharm'].data['x_t'], y=g.nodes['prot'].data['x_0'], batch_x=pharm_batch_idx, batch_y=prot_batch_idx, r=graph_cutoffs['pf'], max_num_neighbors=100)
-        g.add_edges(pf_idxs[0], pf_idxs[1], etype='pf')
+    elif graph_types['pf'] == 'radius':     
+        pf_r = graph_config['radius']['pf']
+        pf_idxs = radius(
+            x=g.nodes['prot'].data['x_0'], 
+            y=g.nodes['pharm'].data['x_t'], 
+            batch_x=prot_batch_idx, 
+            batch_y=pharm_batch_idx, 
+            r=pf_r, 
+            max_num_neighbors=100)
+        # pf_idxs[0] -> pharmacophore nodes
+        # pf_idxs[1] -> protein nodes
+        g.add_edges(pf_idxs[1], pf_idxs[0], etype='pf')
 
         # add pharm-prot edges  
-        g.add_edges(pf_idxs[1], pf_idxs[0], etype='fp')
-
+        g.add_edges(pf_idxs[0], pf_idxs[1], etype='fp')
 
     # compute batch information
     batch_num_edges[('pharm', 'ff', 'pharm')] = get_edges_per_batch(ff_idxs[0], batch_size, pharm_batch_idx)
