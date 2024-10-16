@@ -42,6 +42,7 @@ class PharmacoForge(pl.LightningModule):
         n_pockets_to_sample: int = 8,
         diffusion_config = {},
         fm_config = {},
+        modality_loss_weights = {},
         model_class: str = 'diffusion' , # can be diffusion or flow-matching
         **kwargs):
         super().__init__()
@@ -50,6 +51,11 @@ class PharmacoForge(pl.LightningModule):
         self.batch_size = batch_size
         self.ph_type_map = ph_type_map
         self.model_class = model_class
+        self.modality_loss_weights = modality_loss_weights
+
+        for loss_name in ['pos loss', 'feat loss']:
+            if loss_name not in self.modality_loss_weights:
+                self.modality_loss_weights[loss_name] = 1.0
 
         if model_class == 'diffusion':
         #TODO implement obtaining the pharmacophore size distribution from the dataset
@@ -168,12 +174,14 @@ class PharmacoForge(pl.LightningModule):
         outputs = self.forward(protpharm_graphs)
 
         # compute total loss
-        # TODO: loss weights
         # TODO: change naming convention for losses
         loss_names = [ key for key in outputs if 'loss' in key]
         total_loss = 0
         for loss_name in loss_names:
-            total_loss += outputs[loss_name]
+            try:
+                total_loss += outputs[loss_name]*self.modality_loss_weights[loss_name]
+            except KeyError:
+                raise ValueError(f'Loss name {loss_name} not found in modality loss weights')
         outputs['total loss'] = total_loss
 
         # rename outputs to include phase

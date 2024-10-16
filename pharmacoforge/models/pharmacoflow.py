@@ -16,6 +16,7 @@ class PharmacoFlow(nn.Module):
         rec_nf: int,  # number of scalar features for receptor nodes
         ph_type_map: List[str], 
         processed_data_dir: Path,
+        n_timesteps: int = 100,
         time_scaled_loss: bool = False,
         graph_config: dict = {},
         vf_config: dict = {},                  
@@ -29,6 +30,7 @@ class PharmacoFlow(nn.Module):
         self.graph_config = graph_config
         self.vf_config = vf_config
         self.time_scaled_loss = time_scaled_loss
+        self.n_timesteps = n_timesteps
 
         self.vector_field = FMVectorField(
                             n_pharm_types=n_pharm_types,
@@ -147,7 +149,7 @@ class PharmacoFlow(nn.Module):
     def sample(self, g, 
                init_pharm_com: torch.Tensor = None, 
                visualize: bool = False, 
-               n_timesteps: int = 100,
+               n_timesteps: int = None,
                **kwargs
         ):
 
@@ -165,6 +167,9 @@ class PharmacoFlow(nn.Module):
         #Use the receptor pocket COM if pharmacophore COM not provided
         if init_pharm_com is None:
             init_pharm_com=init_prot_com
+
+        if n_timesteps is None:
+            n_timesteps = self.n_timesteps
 
         # translate the protein so that the origin corresponds to the desired pharmacophore COM
         g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]

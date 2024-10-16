@@ -14,8 +14,8 @@ training:
   evaluation:
     pharms_per_pocket: 2
     n_pockets: 8
-    sample_interval: 0.5 # how often to sample molecules during training, measured in epochs
-    val_loss_interval: 0.8 # how often to compute validation set loss during training, measured in epochs
+    sample_interval: 3 # how often to sample molecules during training, measured in epochs
+    val_loss_interval: 3 # how often to compute validation set loss during training, measured in epochs
 
 lr_scheduler:
   # to turn off warmup and restarts, set both warmup_length and restart_interval to 0
@@ -66,24 +66,28 @@ dataset:
   
 graph:
   # TODO: cleaner graph specification
-  radius: {'pp': 8, 'pf': 8, 'fp': 8, 'ff': 9}
-  knn: {'pp': 10, 'pf': 10, 'fp': 10, 'ff': 10}
+  radius: {'pp': 8, 'pf': 8, 'ff': 9}
+  knn: {'pp': 10, 'pf': 15, 'ff': 10}
   krandom:
-    pp: 10
+    pp: 20
   temp:
     pp: 1.25
   graph_types:
     pp: 'random-knn'
-    pf: 'radius'
+    pf: 'knn'
     ff: 'radius'
 
 pharmacoforge:
   model_class: flow-matching
+  modality_loss_weights:
+    'pos loss': 1.0
+    'feat loss': 1.0
 
 flow-matching:
+  n_timesteps: 250
   time_scaled_loss: False
   vf_config: # kwargs for FMVectorField
-    node_scalar_dim: 64
+    node_scalar_dim: 128
     node_vector_dim: 16
     convs_per_update: 1
     n_recycles: 1
@@ -91,6 +95,8 @@ flow-matching:
     separate_updaters: true
     time_embedding_dim: 1
     type_embedding_dim: 64
+    stochasticity: 20
+    high_confidence_threshold: 0.9
     conv_config: # kwargs for GVPMultiEdgeConv
       cp_dim: 0
       n_message_gvps: 3
@@ -102,9 +108,9 @@ flow-matching:
       # s_kq_dim: 32
       # v_kq_dim: 32
       message_norm: 100
-      rbf_dmax: 16
-      rbf_dim: 42
-      s_message_dim: null
+      rbf_dmax: 32
+      rbf_dim: 64
+      s_message_dim: 64
       v_message_dim: null
 
 diffusion:
@@ -125,6 +131,3 @@ dynamics:
   n_message_gvps: 3 # the number of GVPs to chain together for the message function
   n_update_gvps: 2 # the number of GVPs to chain together for the update function
   n_noise_gvps: 4 # the number of GVPs to chain together for the noise prediction block
-
-rec_encoder_loss:
-  loss_type: 'optimal_transport' # can be optimal_transport, gaussian_repulsion, hinge, or none
