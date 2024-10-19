@@ -45,6 +45,7 @@ cmd.select('NegativeIon', f'elem O and ({all_ph_sel_str})')
 cmd.select('Aromatic', f'elem P and ({all_ph_sel_str})')
 cmd.select('HydrogenAcceptor', f'elem F and ({all_ph_sel_str})')
 cmd.select('HydrogenDonor', f'elem S and ({all_ph_sel_str})')
+cmd.select('Mask', f'elem Se and ({all_ph_sel_str})')
 
 
 pymol_color_map = {
@@ -54,6 +55,7 @@ pymol_color_map = {
     'HydrogenDonor': 'white',
     'PositiveIon': 'blue',
     'NegativeIon': 'red',
+    'Mask': 'grey'
 }
 
 # color the pharmacophores

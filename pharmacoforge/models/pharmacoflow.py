@@ -62,6 +62,9 @@ class PharmacoFlow(nn.Module):
 
         # sample t for each graph in the batch
         t = torch.rand(batch_size, device=device)
+        
+        # print("WARNING: setting t to constant value for debugging")
+        # t = torch.ones_like(t) * 0.9
 
         # sample p_t(g|g_0,g_1)
         g = self.sample_conditional_path(g, t, batch_idxs)
@@ -136,6 +139,7 @@ class PharmacoFlow(nn.Module):
         kappa_prime = 1
         weights = kappa_prime / (1 - kappa)
         weights = torch.clamp(weights, min=0.05, max=1.5)
+        return weights
 
     def sample_prior(self, g: dgl.DGLHeteroGraph) -> dgl.DGLHeteroGraph:
 

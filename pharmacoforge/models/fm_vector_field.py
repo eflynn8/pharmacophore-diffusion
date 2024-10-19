@@ -127,9 +127,7 @@ class FMVectorField(nn.Module):
         self.pharm_scalar_readout = nn.Sequential(
             nn.Linear(node_scalar_dim, node_scalar_dim),
             nn.SiLU(),
-            nn.Linear(node_scalar_dim, mid_layer_size),
-            nn.SiLU(),
-            nn.Linear(mid_layer_size, self.n_pharm_types)
+            nn.Linear(node_scalar_dim, self.n_pharm_types),
         )
 
     def build_cat_temp_schedule(self, cat_temperature_schedule, cat_temp_decay_max, cat_temp_decay_a):
