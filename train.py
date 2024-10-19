@@ -139,6 +139,7 @@ if __name__ == '__main__':
     # if this is a debug run, set limit_train_batches to 10
     if args.debug:
         trainer_config['limit_train_batches'] = 100
+        trainer_config['limit_val_batches'] = 0.0
         
     # set refresh rate for progress bar via TQDMProgressBar callback
     if args.debug:

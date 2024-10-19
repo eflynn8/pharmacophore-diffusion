@@ -107,7 +107,9 @@ class FMVectorField(nn.Module):
             'prot': rec_nf
         }
         for node_type in self.ntypes:
-            num_types = self.num_types_dict[node_type] + 1 # +1 for mask token
+            num_types = self.num_types_dict[node_type]
+            if node_type == 'pharm':
+                num_types += 1 # add one for the mask token
             self.type_embeddings[node_type] = nn.Embedding(num_types, type_embedding_dim)
         self.type_embedddings = nn.ModuleDict(self.type_embeddings)
 
