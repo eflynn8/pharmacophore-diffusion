@@ -202,11 +202,11 @@ class PharmacoDiff(nn.Module):
         #TODO: check this math lol
         #compute the mean (mu) for positions/features of the distribution p(z_s | z_t)
         if self.endpoint_param_coord:
-            mu_pos = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['x_t'] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_x
+            mu_pos = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['x_t'] + (alpha_s*(sigma2_t_given_s**2)/(sigma_t**2))*pred_x
         else:
             mu_pos = g.nodes['pharm'].data['x_t'] /alpha_t_given_s - var_terms*pred_x
         if self.endpoint_param_feat:
-            mu_feat = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['h_t'] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_h
+            mu_feat = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['h_t'] + (alpha_s*(sigma2_t_given_s**2)/(sigma_t**2))*pred_h
         else:
             mu_feat = g.nodes['pharm'].data['h_t'] /alpha_t_given_s - var_terms*pred_h
 
