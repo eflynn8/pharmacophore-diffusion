@@ -29,7 +29,7 @@ def remove_com(protpharm_graphs: dgl.DGLHeteroGraph,
 
     protpharm_graphs.nodes['pharm'].data[pharm_feat] = protpharm_graphs.nodes['pharm'].data[pharm_feat] - com[pharm_batch_idx]
     protpharm_graphs.nodes['prot'].data['x_0'] = protpharm_graphs.nodes['prot'].data['x_0'] - com[prot_batch_idx]
-    return protpharm_graphs
+    return protpharm_graphs,com[pharm_batch_idx]
 
 # TODO: better pharm edges options
 def add_pharm_edges(g: dgl.DGLHeteroGraph, 
