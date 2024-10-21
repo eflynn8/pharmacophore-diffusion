@@ -100,7 +100,7 @@ class PharmacoDiff(nn.Module):
         batch_idxs = get_batch_idxs(g)
         
         # remove pharmacophore COM from protein-pharmacophore graph
-        g,_ = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
+        g,_ = remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
         # make clean graph copy for metrics and endpoint prediction
         #g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
@@ -133,14 +133,14 @@ class PharmacoDiff(nn.Module):
             h_loss = (eps['h'] - h_dyn).square().sum(dim=1)
             h_0_pred = (g.nodes['pharm'].data['h_t'] - sigma_t*h_dyn)/alpha_t
         if self.endpoint_param_coord:
-            if self.remove_com:
+            if self.remove_com_noising:
                 # correct for COM shifting for the prediction
                 x_dyn = x_dyn + sampled_com/alpha_t
             x_0_pred = x_dyn
             x_loss = ((x_0_pred - g.nodes['pharm'].data['x_0'])).square().sum(dim=1)    
         else:
             x_loss = ((eps['x'] - x_dyn)).square().sum(dim=1)
-            if self.remove_com:
+            if self.remove_com_noising:
                 # correct for COM shifting for the prediction
                 g.nodes['pharm'].data['x_t'] = g.nodes['pharm'].data['x_t'] + sampled_com
             x_0_pred = (g.nodes['pharm'].data['x_t'] - sigma_t*x_dyn)/alpha_t 
@@ -271,7 +271,7 @@ class PharmacoDiff(nn.Module):
         g = self.sample_prior(g)
 
         # remove pharmacophore COM from system
-        g = remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
+        g,_ = remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore')
 
         if visualize:
             traj_frames = {}
