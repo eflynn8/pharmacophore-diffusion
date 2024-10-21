@@ -132,8 +132,8 @@ class PharmacophoreDiff(pl.LightningModule):
         alpha_t = self.alpha(gamma_t)[pharm_batch_idx][:, None]
         sigma_t = self.sigma(gamma_t)[pharm_batch_idx][:, None]
 
-        g.nodes['pharm'].data['x_0'] = (g.nodes['pharm'].data['x_0'] - sigma_t*eps_x_pred)/alpha_t
-        g.nodes['pharm'].data['h_0'] = (g.nodes['pharm'].data['h_0'] - sigma_t*eps_h_pred)/alpha_t
+        g.nodes['pharm'].data['x_0'] = (g.nodes['pharm'].data['x_t'] - sigma_t*eps_x_pred)/alpha_t
+        g.nodes['pharm'].data['h_0'] = (g.nodes['pharm'].data['h_t'] - sigma_t*eps_h_pred)/alpha_t
 
         return g
     
@@ -176,10 +176,10 @@ class PharmacophoreDiff(pl.LightningModule):
         batch_idxs = get_batch_idxs(g)
         
         # remove pharmacophore COM from protein-pharmacophore graph
-        g,sampled_com = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
+        g,_ = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='pharmacophore', pharm_feat='x_0')
 
         # make clean graph copy for metrics and endpoint prediction
-        g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
+        #g_copy = copy_graph(g, n_copies=1, batched_graph=True)[0]
         
         # sample timepoints for each item in the batch
         t = torch.randint(0, self.n_timesteps, size=(batch_size,), device=device).float() # timesteps
@@ -203,20 +203,23 @@ class PharmacophoreDiff(pl.LightningModule):
 
         if self.endpoint_param_feat:
             h_0_pred = h_dyn
-            h_loss=fn.cross_entropy(h_0_pred, g_copy.nodes['pharm'].data['h_0'].argmax(dim=1),reduction='none')
+            h_loss=fn.cross_entropy(h_0_pred, g.nodes['pharm'].data['h_0'].argmax(dim=1),reduction='none')
         else:
             h_loss = (eps['h'] - h_dyn).square().sum(dim=1)
             h_0_pred = (g.nodes['pharm'].data['h_t'] - sigma_t*h_dyn)/alpha_t
         if self.endpoint_param_coord:
             if self.remove_com:
-                # correct for COM shifting
-                x_dyn = x_dyn + sampled_com
+                # correct for COM shifting for the prediction
+                x_dyn = x_dyn + sampled_com/alpha_t
             x_0_pred = x_dyn
-            x_loss = ((x_0_pred - g_copy.nodes['pharm'].data['x_0'])).square().sum(dim=1)    
+            x_loss = ((x_0_pred - g.nodes['pharm'].data['x_0'])).square().sum(dim=1)    
         else:
             x_loss = ((eps['x'] - x_dyn)).square().sum(dim=1)
-            #get prediction on original frame of reference
+            if self.remove_com:
+                # correct for COM shifting for the prediction
+                g.nodes['pharm'].data['x_t'] = g.nodes['pharm'].data['x_t'] + sampled_com
             x_0_pred = (g.nodes['pharm'].data['x_t'] - sigma_t*x_dyn)/alpha_t 
+            
         
         weight_metric=1 - t[batch_idxs['pharm']]
         weight_loss=torch.ones_like(t)[batch_idxs['pharm']]
