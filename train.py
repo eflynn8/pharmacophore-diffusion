@@ -21,7 +21,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 from pharmacoforge.config_utils.cmdline import register_hyperparameter_args, merge_config_and_args
 from pharmacoforge.config_utils.load_from_config import model_from_config, data_module_from_config
-from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.models.forge import PharmacoForge
 
 def parse_arguments():
     p = argparse.ArgumentParser()
@@ -81,7 +81,7 @@ if __name__ == '__main__':
     data_module = data_module_from_config(config)
 
     # instantiate model
-    model: PharmacophoreDiff = model_from_config(config)
+    model: PharmacoForge = model_from_config(config)
 
     # get wandb logger config
     wandb_config = config['wandb']

@@ -1,18 +1,21 @@
 from torch.optim import Optimizer
 import numpy as np
 from pathlib import Path
-from utils import save_model
-from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.utils import save_model
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from pharmacoforge.models.forge import PharmacoForge
 
 class LRScheduler:
 
     def __init__(self,
-                 model: PharmacophoreDiff,
+                 model: "PharmacoForge",
                  optimizer: Optimizer,
                  base_lr: float,
                  warmup_length: float = 0, 
                  restart_interval: float = 0, 
-                 restart_type: str = 'linear'):
+                 restart_type: str = 'linear', **kwargs):
         
         self.model = model
         self.optimizer = optimizer

@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple, Union
 from pharmacoforge.utils import get_batch_info, get_edges_per_batch, get_batch_idxs
 from torch_cluster import radius_graph, knn_graph, knn, radius
 from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP
+from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges
 
 class NoisePredictionBlock(nn.Module):
 
@@ -93,16 +94,30 @@ class PharmRecGVP(nn.Module):
     
 class PharmRecDynamicsGVP(nn.Module):
 
-    def __init__(self, n_pharm_scalars, n_prot_scalars, vector_size: int = 16, n_convs=4, n_hidden_scalars=128, act_fn=nn.SiLU,
-                 message_norm=1,  graph_cutoffs: dict = {}, n_message_gvps: int = 3, n_update_gvps: int = 2, n_noise_gvps: int = 3, dropout: float = 0.0, ff_k: int = 0, pf_k: int = 0):
+    def __init__(self, 
+                 n_pharm_scalars, 
+                 n_prot_scalars, 
+                 vector_size: int = 16, 
+                 n_convs=4, 
+                 n_hidden_scalars=128, 
+                 act_fn=nn.SiLU,
+                 graph_config: dict = {},
+                 message_norm=1,  
+                #  graph_cutoffs: dict = {}, 
+                 n_message_gvps: int = 3, 
+                 n_update_gvps: int = 2, 
+                 n_noise_gvps: int = 3, 
+                 dropout: float = 0.0, 
+                #  ff_k: int = 0, 
+                #  pf_k: int = 0
+    ):
         
         super().__init__()
-        self.graph_cutoffs = graph_cutoffs
+
         self.n_pharm_scalars = n_pharm_scalars
         self.n_prot_scalars = n_prot_scalars
         self.vector_size = vector_size
-        self.ff_k=ff_k
-        self.pf_k=pf_k
+        self.graph_config = graph_config
 
         self.pharm_encoder = nn.Sequential(
             nn.Linear(n_pharm_scalars+1, n_hidden_scalars),
@@ -173,74 +188,14 @@ class PharmRecDynamicsGVP(nn.Module):
             )
 
             # add pharm-pharm and prot<->pharm edges to graph
-            self.remove_pharm_edges(g)
-            g = self.add_pharm_edges(g, pharm_batch_idx, prot_batch_idx)
+            remove_pharm_edges(g)
+            g = add_pharm_edges(g, pharm_batch_idx, prot_batch_idx, self.graph_config)
 
             # predict noise
             # eps_h, eps_x = self.noise_predictor(g, g.nodes, batch_idxs)
             eps_h, eps_x = self.noise_predictor(g, node_data, batch_idxs)
 
-            self.remove_pharm_edges(g)
+            remove_pharm_edges(g)
 
             return eps_h, eps_x
         
-    def add_pharm_edges(self, g: dgl.DGLHeteroGraph, pharm_batch_idx, prot_batch_idx) -> dgl.DGLHeteroGraph:
-
-        batch_num_nodes, batch_num_edges = get_batch_info(g)
-        batch_size = g.batch_size
-
-        # add pharm-pharm edges
-        if self.ff_k > 0:
-            ff_idxs = knn_graph(g.nodes['pharm'].data['x_t'], k=self.ff_k, batch=pharm_batch_idx)
-        else:
-            ff_idxs = radius_graph(g.nodes['pharm'].data['x_t'], r=self.graph_cutoffs['ff'], batch=pharm_batch_idx, max_num_neighbors=200)
-        g.add_edges(ff_idxs[0], ff_idxs[1], etype='ff')
-
-        # add prot-pharm edges
-        if self.pf_k > 0:
-            ### Change to knn instead of knn_graph and check which idxs belong to prots and which to pharms
-            pf_idxs = knn(g.nodes['prot'].data['x_0'], g.nodes['pharm'].data['x_t'], k=self.pf_k, batch_x=prot_batch_idx, batch_y=pharm_batch_idx)
-            # print("VERIFY PF EDGES!")
-            # print("PF Idxs: ", pf_idxs)
-            ## The edge lists are flipped for knn vs radius
-            g.add_edges(pf_idxs[1], pf_idxs[0], etype='pf')
-
-            # add pharm-prot edges  
-            g.add_edges(pf_idxs[0], pf_idxs[1], etype='fp')
-        else:     
-            pf_idxs = radius(x=g.nodes['pharm'].data['x_t'], y=g.nodes['prot'].data['x_0'], batch_x=pharm_batch_idx, batch_y=prot_batch_idx, r=self.graph_cutoffs['pf'], max_num_neighbors=100)
-            g.add_edges(pf_idxs[0], pf_idxs[1], etype='pf')
-
-            # add pharm-prot edges  
-            g.add_edges(pf_idxs[1], pf_idxs[0], etype='fp')
-
-
-        # compute batch information
-        batch_num_edges[('pharm', 'ff', 'pharm')] = get_edges_per_batch(ff_idxs[0], batch_size, pharm_batch_idx)
-        batch_num_edges[('prot', 'pf', 'pharm')] = get_edges_per_batch(pf_idxs[0], batch_size, prot_batch_idx)
-        batch_num_edges[('pharm', 'fp', 'prot')] = batch_num_edges[('prot', 'pf', 'pharm')]
-        
-        # update the graph's batch information
-        g.set_batch_num_edges(batch_num_edges)
-        g.set_batch_num_nodes(batch_num_nodes)
-
-        return g
-    
-    def remove_pharm_edges(self, g: dgl.DGLHeteroGraph) -> dgl.DGLHeteroGraph:
-
-        etypes_to_remove = ['ff', 'pf', 'fp']
-        
-        batch_num_nodes, batch_num_edges = get_batch_info(g)
-
-        for canonical_etype in batch_num_edges:
-            if canonical_etype[1] in etypes_to_remove:
-                batch_num_edges[canonical_etype] = torch.zeros_like(batch_num_edges[canonical_etype])
-
-        for etype in etypes_to_remove:
-            eids = g.edges(form='eid', etype=etype)
-            g.remove_edges(eids, etype=etype)
-        
-        g.set_batch_num_nodes(batch_num_nodes)
-        g.set_batch_num_edges(batch_num_edges)
-
-        return g

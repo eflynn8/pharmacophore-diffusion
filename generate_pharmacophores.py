@@ -112,8 +112,9 @@ def onehot_encode_elements(atom_elements: Iterable, element_map: Dict[str, int])
 ## Function to take in pocket PDB or mmcif and the ligand SDF to build the graph based on the atoms in the pocket
 def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
                                   prot_element_map,
-                                  graph_cutoffs: dict,
-                                  pocket_cutoff: float, remove_hydrogen: bool = True):
+                                  graph_config: dict,
+                                  pocket_cutoff: float, 
+                                  remove_hydrogen: bool = True):
     
     if rec_file.suffix == '.pdb':
         parser = PDBParser(QUIET=True)
@@ -186,7 +187,7 @@ def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
     g: dgl.DGLHeteroGraph = build_initial_complex_graph(
         prot_atom_positions=pocket_coords,
         prot_atom_features=pocket_atom_features,
-        cutoffs=graph_cutoffs,
+        graph_config=graph_config,
         pharm_atom_positions=lig_com,
         pharm_atom_features=torch.zeros((1,6))
     )
@@ -274,7 +275,7 @@ def main():
     ref_graph: dgl.DGLHeteroGraph = process_ligand_and_pocket(
                                 rec_file, ref_lig_file, pocket_dir,
                                 prot_element_map=prot_element_map,
-                                graph_cutoffs=config['graph']['graph_cutoffs'],
+                                graph_config=config['graph'],
                                 pocket_cutoff=dataset_config['pocket_cutoff'], 
                                 remove_hydrogen=True)
 
