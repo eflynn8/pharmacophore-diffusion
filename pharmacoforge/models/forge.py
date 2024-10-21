@@ -250,7 +250,8 @@ class PharmacoForge(pl.LightningModule):
                max_batch_size: int = 32, 
                init_pharm_com: torch.Tensor = None, 
                visualize_trajectory: bool=False,
-               n_timesteps: int = None
+               n_timesteps: int = None,
+               **kwargs
         ):
         """Samples pharmacophores for multiple receptors, allowing complete specification of the number of pharmacophores to sample for each pocket and the number of centers in each pharmacophore.
 
@@ -303,7 +304,8 @@ class PharmacoForge(pl.LightningModule):
             batch_pharms = self.gen_model.sample(batch_graphs, 
                 init_pharm_com=init_coms, 
                 visualize=visualize_trajectory,
-                n_timesteps=n_timesteps
+                n_timesteps=n_timesteps,
+                **kwargs
             )
 
             sampled_pharms.extend(batch_pharms)

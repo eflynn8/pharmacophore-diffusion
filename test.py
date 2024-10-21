@@ -167,6 +167,9 @@ def main():
             n_pharms=[pharm_sizes],
             init_pharm_com=ref_init_pharm_com,
             visualize_trajectory=args.visualize_trajectory,
+            # TODO: run experiments on CTMC sampling settings
+            # stochasticity=30,
+            # cat_temp_func=lambda t: 1-t,
         )
 
         sampled_pharms = [pharm for sublist in sampled_pharms for pharm in sublist]
