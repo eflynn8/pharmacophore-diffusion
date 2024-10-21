@@ -168,7 +168,9 @@ def main():
             init_pharm_com=ref_init_pharm_com,
             visualize_trajectory=args.visualize_trajectory,
         )
-        
+
+        sampled_pharms = [pharm for sublist in sampled_pharms for pharm in sublist]
+
         pocket_sample_time = time.time() - pocket_sample_start
         pocket_sampling_times.append(pocket_sample_time)
 

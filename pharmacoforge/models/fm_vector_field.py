@@ -9,7 +9,7 @@ import dgl.function as fn
 
 from pharmacoforge.utils.embedding import get_time_embedding
 from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP, _norm_no_nan, _rbf
-from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges
+from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges, translate_pharmacophore_to_init_frame
 from pharmacoforge.utils.ctmc_utils import purity_sampling
 
 
@@ -293,7 +293,7 @@ class FMVectorField(nn.Module):
             for feat in 'xh':
                 split_sizes = g.batch_num_nodes(ntype='pharm')
                 split_sizes = split_sizes.detach().cpu().tolist()
-                init_frame = g.nodes['pharm'].data[f'{feat}_1'].detach().cpu()
+                init_frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
                 init_frame = torch.split(init_frame, split_sizes)
                 traj_frames[feat] = [ init_frame ]
                 traj_frames[f'{feat}_0_pred'] = []
@@ -325,10 +325,9 @@ class FMVectorField(nn.Module):
             if visualize:
                 for feat in 'xh':
 
-                    frame = g.nodes['pharm'][f'{feat}_t'].detach().cpu()
+                    frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
                     split_sizes = g.batch_num_nodes(ntype='pharm')
                     split_sizes = split_sizes.detach().cpu().tolist()
-                    frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
                     frame = torch.split(frame, split_sizes)
                     traj_frames[feat].append(frame)
 

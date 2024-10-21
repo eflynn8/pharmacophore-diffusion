@@ -175,11 +175,12 @@ class PharmacoFlow(nn.Module):
         if n_timesteps is None:
             n_timesteps = self.n_timesteps
 
-        # translate the protein so that the origin corresponds to the desired pharmacophore COM
-        g.nodes['prot'].data['x_0'] = g.nodes['prot'].data['x_0'] - init_pharm_com[batch_idxs['prot']]
-
         # sample prior for pharmacophore center positons + types
         g = self.sample_prior(g)
+
+        # translate pharmacophore to desired COM
+        delta = init_pharm_com - dgl.readout_nodes(g, feat='x_1', ntype='pharm', op='mean')
+        g.nodes['pharm'].data['x_1'] = g.nodes['pharm'].data['x_1'] + delta[batch_idxs['pharm']]
 
         itg_result = self.vector_field.integrate(g, 
                         batch_idxs=batch_idxs, 
@@ -197,6 +198,7 @@ class PharmacoFlow(nn.Module):
             kwargs = {
                 'g': g_i, 
                 'pharm_type_map': self.ph_type_map,
+                'has_mask': True
             }
             if visualize:
                 kwargs['traj_frames'] = traj_frames[gidx]
