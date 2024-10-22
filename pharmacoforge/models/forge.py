@@ -226,7 +226,6 @@ class PharmacoForge(pl.LightningModule):
                                      max_batch_size=64, 
                                      init_pharm_com=init_pharm_com, 
                                      visualize_trajectory=False,
-                                     n_timesteps=100, # as of now, this only applies to flow-matching model, diffusoion always users 1000 steps
         )
 
         self.train()
