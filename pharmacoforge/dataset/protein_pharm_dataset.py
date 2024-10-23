@@ -27,6 +27,8 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         prot_elements: List[str],
         ph_type_map: List[str],
         subsample_pharms: bool = False,
+        subsample_algorithm: str = 'uniform', # can be uniform or ifp-unique
+        subsample_kwargs: dict = {},
         subsample_min: int = 3,
         subsample_max: int = 9,  
         model_class: str = 'diffusion',
@@ -40,7 +42,12 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
         self.subsample_pharms = subsample_pharms
         self.subsample_min = subsample_min
         self.subsample_max = subsample_max
+        self.subsample_algorithm = subsample_algorithm
+        self.subsample_kwargs = subsample_kwargs
         self.model_class = model_class
+
+        if self.subsample_algorithm not in ['uniform', 'ifp-unique']:
+            raise ValueError(f'subsample_algorithm must be one of ["uniform", "ifp-unique"], got {self.subsample_algorithm}')
 
         # define filepath of data
         self.processed_data_dir: Path = Path(processed_data_dir)
@@ -175,7 +182,12 @@ class ProteinPharmacophoreDataset(dgl.data.DGLDataset):
                     n_pharm_centers = self.subsample_min
                 else:     
                     n_pharm_centers = random.randint(self.subsample_min, subsample_max)
-                pharm_idxs = random.sample(range(len(pharm_pos)), n_pharm_centers)
+
+                if self.subsample_algorithm == 'uniform':
+                    pharm_idxs = random.sample(range(len(pharm_pos)), n_pharm_centers)
+                elif self.subsample_algorithm == 'ifp-unique':
+                    pharm_idxs = ifp_unique_sample(pharm_pos, n_pharm_centers, **self.subsample_kwargs)
+
                 pharm_pos = pharm_pos[pharm_idxs]
                 pharm_feat = pharm_feat[pharm_idxs]
 
@@ -254,3 +266,50 @@ def get_dataloader(dataset: ProteinPharmacophoreDataset, batch_size: int, num_wo
 
     dataloader = GraphDataLoader(dataset, batch_size=batch_size, drop_last=False, num_workers=num_workers, collate_fn=collate_fn, **kwargs)
     return dataloader
+
+
+def ifp_unique_sample(x: torch.Tensor, n: int, tol: float = 0.01):
+    """Subsample n points from point cloud x using something like iterative farthest point sampling.
+
+    Args:
+        x (torch.Tensor): Point cloud of shape (N, 3) where N >= n.
+        n (int): Number of points to subsample.
+        tol (float, optional): Tolerance with which to define two points as non-unique. Defaults to 0.01.
+    """
+    # get number of points in original point cloud
+    N = x.shape[0] 
+
+    # get all pairwise distances
+    D = torch.cdist(x, x)
+    
+    # start with a random point
+    idxs = [random.randint(0, N-1)]
+
+    # mask of nodes that are available for selection
+    available_mask = torch.ones(N, dtype=torch.bool)
+    available_mask[idxs[0]] = False
+
+    while len(idxs) < n:
+        # get the distance from the current points to all other points
+        dists = D[idxs[-1]]
+
+        # make all points very close to currently selected point unavailable
+        available_mask[dists < tol] = False
+
+        # make unavaiable points very close
+        dists[~available_mask] = 0
+
+        # get the index of the point that is furthest from the current points
+        new_idx = int(torch.argmax(dists))
+
+        # if the distance is less than tol, we have found a non-unique point
+        if dists[new_idx].item() < tol:
+            break
+
+        # add the new index to the list of indices
+        idxs.append(new_idx)
+
+        # remove the new index from the available mask
+        available_mask[idxs[-1]] = False
+
+    return idxs

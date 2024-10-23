@@ -14,7 +14,7 @@ training:
   evaluation:
     pharms_per_pocket: 2
     n_pockets: 8
-    sample_interval: 0.1 # how often to sample molecules during training, measured in epochs
+    sample_interval: 3 # how often to sample molecules during training, measured in epochs
     val_loss_interval: 3 # how often to compute validation set loss during training, measured in epochs
 
 lr_scheduler:
@@ -62,6 +62,7 @@ dataset:
   subsample_pharms: True
   subsample_min: 4
   subsample_max: 8
+  subsample_algorithm: 'ifp-unique'
   
   
 graph:
@@ -84,7 +85,7 @@ pharmacoforge:
     'feat loss': 1.0
 
 flow-matching:
-  n_timesteps: 250
+  n_timesteps: 10
   time_scaled_loss: False
   vf_config: # kwargs for FMVectorField
     node_scalar_dim: 128
