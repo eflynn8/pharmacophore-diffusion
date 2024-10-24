@@ -3,7 +3,9 @@ import dgl
 from typing import List
 from rdkit import Chem
 from pathlib import Path
-from copy import deepcopy
+from pharmacoforge.constants import ph_idx_to_type
+from pharmacoforge.analysis.validity import compute_complementarity
+
 
 class SampledPharmacophore:
 
@@ -104,3 +106,18 @@ class SampledPharmacophore:
             f.write(out)
 
 
+    def compute_n_valid_centers(self):
+        prot_ph_feat = self.g.nodes['prot_ph'].data['h_0']
+        prot_ph_pos = self.g.nodes['prot_ph'].data['x_0']
+
+        # convert protein pharmacophore feature indices to types
+        prot_ph_types = [ph_idx_to_type[int(idx)] for idx in prot_ph_feat.argmax(dim=1)]
+
+        kwargs = {
+            'pharm_pos': self.ph_coords,
+            'pharm_types': self.ph_types,
+            'prot_ph_pos': prot_ph_pos,
+            'prot_ph_types': prot_ph_types
+        }
+        n_valid_ph_nodes = compute_complementarity(**kwargs, return_count=True)
+        return n_valid_ph_nodes
