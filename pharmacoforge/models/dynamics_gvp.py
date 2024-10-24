@@ -10,7 +10,7 @@ from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges
 
 class NoisePredictionBlock(nn.Module):
 
-    def __init__(self, in_scalar_dim: int, out_scalar_dim: int, vector_size: int, n_gvps: int = 3, intermediate_scalar_dim: int = 64):
+    def __init__(self, in_scalar_dim: int, out_scalar_dim: int, vector_size: int, n_gvps: int = 3, intermediate_scalar_dim: int = 64, gvp_cross_attention: bool = False):
         super().__init__()
 
         self.gvps = []
@@ -29,7 +29,8 @@ class NoisePredictionBlock(nn.Module):
                 dim_vectors_out=dim_vectors_out,
                 dim_feats_in=in_scalar_dim,
                 dim_feats_out=dim_feats_out,
-                vectors_activation=vectors_activation
+                vectors_activation=vectors_activation,
+                gvp_cross_attention=gvp_cross_attention
             ))
         self.gvps = nn.Sequential(*self.gvps)
 
