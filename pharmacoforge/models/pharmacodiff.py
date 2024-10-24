@@ -276,6 +276,7 @@ class PharmacoDiff(nn.Module):
         if visualize:
             traj_frames = {}
             for feat in 'xh':
+                raise ValueError('this code is broken, need to translate initial frame to initial frame of reference')
                 split_sizes = g.batch_num_nodes(ntype='pharm')
                 split_sizes = split_sizes.detach().cpu().tolist()
                 init_frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()

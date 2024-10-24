@@ -62,6 +62,7 @@ dataset:
   subsample_pharms: True
   subsample_min: 4
   subsample_max: 8
+  subsample_algorithm: 'ifp-unique'
   
   
 graph:
@@ -84,7 +85,7 @@ pharmacoforge:
     'feat loss': 1.0
 
 flow-matching:
-  n_timesteps: 250
+  n_timesteps: 10
   time_scaled_loss: False
   vf_config: # kwargs for FMVectorField
     node_scalar_dim: 128

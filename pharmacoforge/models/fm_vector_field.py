@@ -9,7 +9,7 @@ import dgl.function as fn
 
 from pharmacoforge.utils.embedding import get_time_embedding
 from pharmacoforge.models.gvp import GVPMultiEdgeConv, GVP, _norm_no_nan, _rbf
-from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges
+from pharmacoforge.utils.graph_ops import add_pharm_edges, remove_pharm_edges, translate_pharmacophore_to_init_frame
 from pharmacoforge.utils.ctmc_utils import purity_sampling
 
 
@@ -108,7 +108,9 @@ class FMVectorField(nn.Module):
             'prot': rec_nf
         }
         for node_type in self.ntypes:
-            num_types = self.num_types_dict[node_type] + 1 # +1 for mask token
+            num_types = self.num_types_dict[node_type]
+            if node_type == 'pharm':
+                num_types += 1 # add one for the mask token
             self.type_embeddings[node_type] = nn.Embedding(num_types, type_embedding_dim)
         self.type_embedddings = nn.ModuleDict(self.type_embeddings)
 
@@ -130,7 +132,7 @@ class FMVectorField(nn.Module):
             nn.SiLU(),
             nn.Linear(node_scalar_dim, mid_layer_size),
             nn.SiLU(),
-            nn.Linear(mid_layer_size, self.n_pharm_types)
+            nn.Linear(mid_layer_size, n_pharm_types)
         )
 
     def build_cat_temp_schedule(self, cat_temperature_schedule, cat_temp_decay_max, cat_temp_decay_a):
@@ -292,7 +294,7 @@ class FMVectorField(nn.Module):
             for feat in 'xh':
                 split_sizes = g.batch_num_nodes(ntype='pharm')
                 split_sizes = split_sizes.detach().cpu().tolist()
-                init_frame = g.nodes['pharm'].data[f'{feat}_1'].detach().cpu()
+                init_frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
                 init_frame = torch.split(init_frame, split_sizes)
                 traj_frames[feat] = [ init_frame ]
                 traj_frames[f'{feat}_0_pred'] = []
@@ -324,10 +326,9 @@ class FMVectorField(nn.Module):
             if visualize:
                 for feat in 'xh':
 
-                    frame = g.nodes['pharm'][f'{feat}_t'].detach().cpu()
+                    frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
                     split_sizes = g.batch_num_nodes(ntype='pharm')
                     split_sizes = split_sizes.detach().cpu().tolist()
-                    frame = g.nodes['pharm'].data[f'{feat}_t'].detach().cpu()
                     frame = torch.split(frame, split_sizes)
                     traj_frames[feat].append(frame)
 

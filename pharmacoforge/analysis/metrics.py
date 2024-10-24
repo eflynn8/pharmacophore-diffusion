@@ -40,7 +40,11 @@ class SampleAnalyzer:
 
         for ph in sample:
             pharm_feat = ph.g.nodes['pharm'].data['h_0']
-            pharm_types = pharm_feat.argmax(dim=1)
+
+            if pharm_feat.shape[1] > 1: # if it is one-hot encoded (this is the case for diffusion)
+                pharm_types = pharm_feat.argmax(dim=1)
+            else:
+                pharm_types = pharm_feat.flatten() # otherwise, pharm_feat has shape (n_nodes,1)
 
             total += len(pharm_types)
 

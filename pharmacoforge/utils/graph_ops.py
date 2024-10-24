@@ -116,7 +116,9 @@ def translate_pharmacophore_to_init_frame(
         g:dgl.DGLHeteroGraph, 
         init_prot_com: torch.Tensor, 
         batch_idxs: Dict[str, torch.Tensor],
-        normalization_constant: float = None):
+        normalization_constant: float = None,
+        return_unbatched: bool = True
+        ):
     
     #make a copy of g
     g_frame=copy_graph(g,n_copies=1,batched_graph=True)[0]
@@ -131,9 +133,15 @@ def translate_pharmacophore_to_init_frame(
     delta = delta[batch_idxs['pharm']]
     g_frame.nodes['pharm'].data['x_t'] = g_frame.nodes['pharm'].data['x_t']+delta
 
+    if 'x_0_pred' in g_frame.nodes['pharm'].data:
+        g_frame.nodes['pharm'].data['x_0_pred'] = g_frame.nodes['pharm'].data['x_0_pred']+delta
+
     g_frame=g_frame.to('cpu')
-    pharm_pos, pharm_feat =[],[]
-    for g_i in dgl.unbatch(g_frame):
-        pharm_pos.append(g_i.nodes['pharm'].data['x_t'])
-        pharm_feat.append(g_i.nodes['pharm'].data['h_t'])
-    return pharm_pos, pharm_feat
+    if return_unbatched:
+        pharm_pos, pharm_feat =[],[]
+        for g_i in dgl.unbatch(g_frame):
+            pharm_pos.append(g_i.nodes['pharm'].data['x_t'])
+            pharm_feat.append(g_i.nodes['pharm'].data['h_t'])
+        return pharm_pos, pharm_feat
+    else:
+        return g_frame
