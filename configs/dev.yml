@@ -35,6 +35,14 @@ lr_scheduler:
   restart_type: linear
   warmup_length: 0
   weight_decay: 1.0e-12
+    min_lr: 1.0e-05
+    mode: min
+    patience: 30
+    verbose: true
+  restart_interval: 0
+  restart_type: linear
+  warmup_length: 0
+  weight_decay: 1.0e-12
 
 checkpointing:
   save_last: True

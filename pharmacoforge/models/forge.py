@@ -323,5 +323,3 @@ class PharmacoForge(pl.LightningModule):
             per_pocket_samples.append(sampled_pharms[start_idx:end_idx])
         
         return per_pocket_samples
-
-

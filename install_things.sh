@@ -15,4 +15,8 @@ mamba install -c conda-forge wandb -y
 #for pymol visualization
 mamba install conda-forge::pymol-open-source -y
 #networkx
+<<<<<<< HEAD
 mamba install networkx
+=======
+mamba install networkx -y
+>>>>>>> interface-refactor
