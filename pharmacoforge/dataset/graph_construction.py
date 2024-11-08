@@ -2,7 +2,6 @@ import torch
 import dgl
 from torch_cluster import radius_graph, knn_graph
 import networkx as nx
-import networkx as nx
 
 def build_initial_complex_graph(
         prot_atom_positions: torch.Tensor, 
