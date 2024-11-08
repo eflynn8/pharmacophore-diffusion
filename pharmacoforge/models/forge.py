@@ -117,8 +117,11 @@ class PharmacoForge(pl.LightningModule):
                                lr=self.lr_scheduler_config['base_lr'],
                                weight_decay=weight_decay
         )
-        self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
-        return {'optimizer': optimizer, }
+        scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
+        self.set_lr_scheduler_frequency()
+
+        # self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
+        return {'optimizer': optimizer, 'lr_scheduler': {"scheduler":scheduler,"monitor": self.lr_scheduler_config['monitor'], "interval": self.lr_scheduler_config['interval'], "frequency": self.lr_scheduler_config['frequency']}}
 
     def training_step(self, batch, batch_idx):
         protpharm_graphs = batch
@@ -128,7 +131,7 @@ class PharmacoForge(pl.LightningModule):
         epoch_exact = self.current_epoch + batch_idx / self.num_training_batches()
 
         # step the learning rate scheduler
-        self.lr_scheduler.step_lr(epoch_exact)
+        #self.lr_scheduler.step_lr(epoch_exact)
         
         # forward pass, get losses and metrics
         outputs = self.forward(protpharm_graphs)
@@ -320,5 +323,3 @@ class PharmacoForge(pl.LightningModule):
             per_pocket_samples.append(sampled_pharms[start_idx:end_idx])
         
         return per_pocket_samples
-
-

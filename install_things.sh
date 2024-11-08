@@ -14,3 +14,5 @@ mamba install pytorch::torchdata -y
 mamba install -c conda-forge wandb -y
 #for pymol visualization
 mamba install conda-forge::pymol-open-source -y
+#networkx
+mamba install networkx -y
