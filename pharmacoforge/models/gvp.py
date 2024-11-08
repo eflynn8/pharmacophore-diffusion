@@ -52,8 +52,7 @@ class GVP(nn.Module):
         feats_activation = nn.SiLU(),
         vectors_activation = nn.Sigmoid(),
         vector_gating = True,
-        xavier_init = False,
-        cross_attention = False,
+        xavier_init = False
     ):
         super().__init__()
         self.dim_vectors_in = dim_vectors_in
@@ -67,7 +66,6 @@ class GVP(nn.Module):
         wh_k = 1/math.sqrt(dim_vectors_in)
         self.Wh = torch.zeros(dim_vectors_in, dim_h, dtype=torch.float32).uniform_(-wh_k, wh_k)
         self.Wh = nn.Parameter(self.Wh)
-        self.cross_attention = cross_attention
 
         # create Wcp matrix if we are using cross-product features
         if n_cp_feats > 0:
@@ -75,13 +73,7 @@ class GVP(nn.Module):
             self.Wcp = torch.zeros(dim_vectors_in, n_cp_feats*2, dtype=torch.float32).uniform_(-wcp_k, wcp_k)
             self.Wcp = nn.Parameter(self.Wcp)
 
-        if cross_attention:
-            self.featq= nn.Linear(dim_feats_in, dim_feats_out)
-            self.featk= nn.Linear(dim_vectors_in+n_cp_feats, dim_feats_out)  
-            self.featv= nn.Linear(dim_feats_in, dim_feats_out) 
-            self.vectork= nn.Linear(dim_feats_in, dim_vectors_out)
-            self.vectorq= nn.Linear(dim_vectors_in+n_cp_feats, dim_vectors_out)
-            
+        
 
         # create Wu matrix
         if n_cp_feats > 0: # the number of vector features going into Wu is increased by n_cp_feats if we are using cross-product features
@@ -94,10 +86,8 @@ class GVP(nn.Module):
 
         self.vectors_activation = vectors_activation
 
-        feats_final_dim=dim_feats_out if self.cross_attention else dim_h + n_cp_feats + dim_feats_in 
-
         self.to_feats_out = nn.Sequential(
-            nn.Linear(feats_final_dim, dim_feats_out),
+            nn.Linear(dim_h + n_cp_feats + dim_feats_in, dim_feats_out),
             feats_activation
         )
 
@@ -122,8 +112,6 @@ class GVP(nn.Module):
         assert c == 3 and v == self.dim_vectors_in, 'vectors have wrong dimensions'
         assert n == self.dim_feats_in, 'scalar features have wrong dimensions'
 
-        
-
         Vh = einsum('b v c, v h -> b h c', vectors, self.Wh) # has shape (batch_size, dim_h, 3)
         
         # if we are including cross-product features, compute them here
@@ -139,44 +127,23 @@ class GVP(nn.Module):
             Vh = torch.cat((Vh, cp), dim=1) # has shape (batch_size, dim_h + n_cp_feats, 3)
 
         Vu = einsum('b h c, h u -> b u c', Vh, self.Wu) # has shape (batch_size, dim_vectors_out, 3)
+
         sh = _norm_no_nan(Vh)
 
-        if self.cross_attention:
-            featq = self.featq(feats)
-            featk = self.featk(sh)
-            featv = self.featv(feats)
-            vectorq = self.vectorq(sh)
-            vectork = self.vectork(feats)
-            attn_feat_weights = featq * featk
-            attn_feat_weights = attn_feat_weights / torch.sqrt(torch.tensor(featq.shape[-1]))
-            #attn_feat_weights=attn_feat_weights.sum(dim=-1)
-            attn_feat_weights = torch.nn.functional.softmax(attn_feat_weights, dim=-1)
-            s= attn_feat_weights * featv
-            feats_out = self.to_feats_out(s)
-            attn_vector_weights = vectorq * vectork
-            attn_vector_weights = attn_vector_weights / torch.sqrt(torch.tensor(vectorq.shape[-1]))
-            #attn_vector_weights=attn_vector_weights.sum(dim=-1)
-            attn_vector_weights = torch.nn.functional.softmax(attn_vector_weights, dim=-1)
-            attn_vector_weights = attn_vector_weights.unsqueeze(-1)
-            vectors_out = attn_vector_weights * Vu
+        s = torch.cat((feats, sh), dim = 1)
 
+        feats_out = self.to_feats_out(s)
+
+        if exists(self.scalar_to_vector_gates):
+            gating = self.scalar_to_vector_gates(feats_out)
+            gating = gating.unsqueeze(dim = -1)
         else:
-            
+            gating = _norm_no_nan(Vu)
 
-            s = torch.cat((feats, sh), dim = 1)
+        vectors_out = self.vectors_activation(gating) * Vu
 
-            feats_out = self.to_feats_out(s)
-
-            if exists(self.scalar_to_vector_gates):
-                gating = self.scalar_to_vector_gates(feats_out)
-                gating = gating.unsqueeze(dim = -1)
-            else:
-                gating = _norm_no_nan(Vu)
-
-            vectors_out = self.vectors_activation(gating) * Vu
-
-            # if torch.isnan(feats_out).any() or torch.isnan(vectors_out).any():
-            #     raise ValueError("NaNs in GVP forward pass")
+        # if torch.isnan(feats_out).any() or torch.isnan(vectors_out).any():
+        #     raise ValueError("NaNs in GVP forward pass")
 
         return (feats_out, vectors_out)
     
@@ -240,7 +207,7 @@ class GVPEdgeConv(nn.Module):
                   scalar_activation=nn.SiLU, vector_activation=nn.Sigmoid,
                   n_message_gvps: int = 1, n_update_gvps: int = 1,
                   use_dst_feats: bool = False, rbf_dmax: float = 15, rbf_dim: int = 16,
-                  edge_feat_size: int = 0, coords_range=10, message_norm: Union[float, str] = 10, dropout: float = 0.0, gvp_cross_attention: bool = False):
+                  edge_feat_size: int = 0, coords_range=10, message_norm: Union[float, str] = 10, dropout: float = 0.0,):
         
         super().__init__()
 
@@ -284,8 +251,7 @@ class GVPEdgeConv(nn.Module):
                     dim_feats_out=scalar_size, 
                     feats_activation=scalar_activation(), 
                     vectors_activation=vector_activation(), 
-                    vector_gating=True,
-                    cross_attention=gvp_cross_attention)
+                    vector_gating=True)
             )
         self.edge_message = nn.Sequential(*message_gvps)
 
@@ -299,8 +265,7 @@ class GVPEdgeConv(nn.Module):
                     dim_feats_out=scalar_size, 
                     feats_activation=scalar_activation(), 
                     vectors_activation=vector_activation(), 
-                    vector_gating=True,
-                    cross_attention=gvp_cross_attention)
+                    vector_gating=True)
             )
         self.node_update = nn.Sequential(*update_gvps)
         
@@ -430,8 +395,7 @@ class GVPMultiEdgeConv(nn.Module):
                 # v_kq_dim: int = 32,
                 s_message_dim: int = None,
                 v_message_dim: int = None,
-                 dropout: float = 0.0,
-                 gvp_cross_attention: bool = False):
+                 dropout: float = 0.0):
         
         super().__init__()
 
@@ -524,8 +488,7 @@ class GVPMultiEdgeConv(nn.Module):
                         n_cp_feats=cp_dim, 
                         feats_activation=scalar_activation(), 
                         vectors_activation=vector_activation(), 
-                        vector_gating=True, 
-                        cross_attention=gvp_cross_attention)
+                        vector_gating=True)
                 )
 
             key = '_'.join(etype)
@@ -555,8 +518,7 @@ class GVPMultiEdgeConv(nn.Module):
                             dim_feats_out=dim_feats_out,
                             feats_activation=scalar_activation(), 
                             vectors_activation=vector_activation(), 
-                            vector_gating=True,
-                            cross_attention=gvp_cross_attention)
+                            vector_gating=True)
                     )
                 message_projection = nn.Sequential(*projection_gvps)
             else:
@@ -579,8 +541,7 @@ class GVPMultiEdgeConv(nn.Module):
                         n_cp_feats=cp_dim,
                         feats_activation=scalar_activation(), 
                         vectors_activation=vector_activation(), 
-                        vector_gating=True,
-                        cross_attention=gvp_cross_attention)
+                        vector_gating=True)
                 )
             self.node_update_fns[ntype] = nn.Sequential(*update_gvps)
             self.message_layer_norms[ntype] = GVPLayerNorm(scalar_size)

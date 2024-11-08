@@ -89,7 +89,6 @@ class FMVectorField(nn.Module):
 
         # fish cp_dim out of conv_config
         cp_dim = conv_config['cp_dim']
-        gvp_cross_attention=conv_config['gvp_cross_attention']
 
         # create molecule update layers
         self.node_position_updaters = nn.ModuleList([])
@@ -98,7 +97,7 @@ class FMVectorField(nn.Module):
         else:
             n_updaters = 1
         for _ in range(n_updaters):
-            self.node_position_updaters.append(NodePositionUpdate(node_scalar_dim, node_vector_dim, n_gvps=3, n_cp_feats=cp_dim,gvp_cross_attention=gvp_cross_attention))
+            self.node_position_updaters.append(NodePositionUpdate(node_scalar_dim, node_vector_dim, n_gvps=3, n_cp_feats=cp_dim))
 
 
         # create embedding layers for pharmacophore and protein atom types
@@ -487,7 +486,7 @@ class FMVectorField(nn.Module):
 
 class NodePositionUpdate(nn.Module):
 
-    def __init__(self, n_scalars, n_vec_channels, n_gvps: int = 3, n_cp_feats: int = 0, gvp_cross_attention: bool = False):
+    def __init__(self, n_scalars, n_vec_channels, n_gvps: int = 3, n_cp_feats: int = 0):
         super().__init__()
 
         self.gvps = []
@@ -509,7 +508,6 @@ class NodePositionUpdate(nn.Module):
                     n_cp_feats=n_cp_feats,
                     vectors_activation=vectors_activation,
                     vector_gating=True,
-                    cross_attention=gvp_cross_attention
                 )
             )
         self.gvps = nn.Sequential(*self.gvps)
