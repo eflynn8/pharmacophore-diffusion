@@ -174,49 +174,5 @@ def build_clustered_graph(x: torch.Tensor, cutoff: float,  k_local: int):
 
     return torch.stack([src_idxs, dst_idxs], dim=0)
 
-def build_clustered_graph(x: torch.Tensor, cutoff: float,  k_local: int):
-    
-    n_nodes = x.shape[0]
-
-    # compute pairwise distances
-    D = torch.cdist(x, x)
-
-    # make self-distances very large
-    D[torch.eye(n_nodes).bool()] = 1.0e5
-
-    local_idxs_src = torch.arange(n_nodes).repeat_interleave(k_local)
-
-    # get indicies of k nearest neighbors
-    local_idxs_dst = torch.topk(D, k_local, largest=False, dim=1).indices # has shape (n_nodes, k)
-
-    radius_edges = radius_graph(x, r=cutoff, max_num_neighbors=100)
-    radius_edges = (radius_edges[0], radius_edges[1])
-    graph=dgl.graph(radius_edges)
-
-    network_x_graph = dgl.to_networkx(graph).to_undirected()
-    
-
-    centroid_indices=[]
-    for c in nx.connected_components(network_x_graph):
-        indices=list(c)
-        positions=x[indices]
-        centroid_position=positions.mean(dim=0)
-        centroid_closest_idx = torch.argmin(torch.cdist(positions, centroid_position.view(1, -1)))
-        centroid_idx = indices[centroid_closest_idx]
-        centroid_indices.append(centroid_idx)
-    
-    centroid_indices = torch.tensor(centroid_indices)
-    centroid_indices_src = centroid_indices.repeat_interleave(centroid_indices.shape[0])
-    centroid_indices_dst = centroid_indices.repeat(centroid_indices.shape[0])
-
-    #remove self edges
-    mask = centroid_indices_src != centroid_indices_dst
-    centroid_indices_src = centroid_indices_src[mask]
-    centroid_indices_dst = centroid_indices_dst[mask]
-
-    src_idxs = torch.cat([local_idxs_src, centroid_indices_src])
-    dst_idxs = torch.cat([local_idxs_dst.flatten(), centroid_indices_dst])
-
-    return torch.stack([src_idxs, dst_idxs], dim=0)
 
 
