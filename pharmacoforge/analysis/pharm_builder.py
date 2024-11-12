@@ -5,6 +5,7 @@ from rdkit import Chem
 from pathlib import Path
 from pharmacoforge.constants import ph_idx_to_type
 from pharmacoforge.analysis.validity import compute_complementarity
+from copy import deepcopy
 
 
 class SampledPharmacophore:

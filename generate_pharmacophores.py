@@ -22,7 +22,7 @@ from pharmacoforge.config_utils.load_from_config import model_from_config, data_
 from pharmacoforge.dataset.receptor_utils import PocketSelector, write_pocket_file
 from pharmacoforge.analysis.pharm_builder import SampledPharmacophore
 from pharmacoforge.analysis.metrics import SampleAnalyzer
-from pharmacoforge.models.pharmacodiff import PharmacophoreDiff
+from pharmacoforge.models.forge import PharmacoForge
 from pharmacoforge.utils import write_pharmacophore_file, copy_graph, get_prot_atom_ph_type_maps
 
 
@@ -110,11 +110,14 @@ def onehot_encode_elements(atom_elements: Iterable, element_map: Dict[str, int])
     return onehot_elements
 
 ## Function to take in pocket PDB or mmcif and the ligand SDF to build the graph based on the atoms in the pocket
-def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
-                                  prot_element_map,
-                                  graph_config: dict,
-                                  pocket_cutoff: float, 
-                                  remove_hydrogen: bool = True):
+def process_ligand_and_pocket(rec_file: Path, 
+                            lig_file: Path, 
+                            output_dir: Path,
+                            prot_element_map,
+                            model_class: str,
+                            graph_config: dict,
+                            pocket_cutoff: float, 
+                            remove_hydrogen: bool = True):
     
     if rec_file.suffix == '.pdb':
         parser = PDBParser(QUIET=True)
@@ -183,13 +186,21 @@ def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
     pocket_coords = pocket_coords[~other_atoms_mask]
     pocket_atom_features = pocket_atom_features[~other_atoms_mask]
 
+    # for diffusion (for which we only have continuous diffusion implemented) - one-hot encode categorical features
+    if model_class == 'diffusion':
+        pharm_feat = torch.zeros((1,6))
+    elif model_class == 'flow-matching':
+        # for flow-matching, we keep categorical features as tokens
+        pharm_feat = torch.zeros((1,1)).long()
+        pocket_atom_features = pocket_atom_features.argmax(-1, keepdim=True)
+
     # build graph and represent pharmacophore intial positions and features as 0s
     g: dgl.DGLHeteroGraph = build_initial_complex_graph(
         prot_atom_positions=pocket_coords,
         prot_atom_features=pocket_atom_features,
         graph_config=graph_config,
         pharm_atom_positions=lig_com,
-        pharm_atom_features=torch.zeros((1,6))
+        pharm_atom_features=pharm_feat
     )
 
     # save the pocket file
@@ -246,15 +257,14 @@ def main():
     #create diffusion model
     # TODO: remove this try/except, it is only for backwards compatibility for models trained before i added the ph_type_map argument to the model class
     try:
-        model = PharmacophoreDiff.load_from_checkpoint(model_file).to(device)
+        model = PharmacoForge.load_from_checkpoint(model_file).to(device)
     except TypeError:
-        model = PharmacophoreDiff.load_from_checkpoint(model_file, ph_type_map=config['dataset']['ph_type_map']).to(device)
+        model = PharmacoForge.load_from_checkpoint(model_file,
+                                ph_type_map=config['dataset']['ph_type_map']).to(device)
     model.eval()
 
-    ## Store times for sampling pockets
-    pocket_sampling_times=[]
+    # start timer for sampling pharmacophores
     pocket_sample_start = time.time()
-
 
     # process the receptor and pocket files
     rec_file = args.receptor_file
@@ -273,69 +283,49 @@ def main():
     
     ## TODO: Fix to be correct configs
     ref_graph: dgl.DGLHeteroGraph = process_ligand_and_pocket(
-                                rec_file, ref_lig_file, pocket_dir,
+                                rec_file, 
+                                ref_lig_file, 
+                                pocket_dir,
                                 prot_element_map=prot_element_map,
+                                model_class=model.model_class,
                                 graph_config=config['graph'],
                                 pocket_cutoff=dataset_config['pocket_cutoff'], 
                                 remove_hydrogen=True)
 
     ref_graph = ref_graph.to(device)
 
-    # get the number of nodes in the binding pocket
-    n_rec_nodes = ref_graph.num_nodes('prot')
-    n_rec_nodes = torch.tensor([n_rec_nodes], device=device)
+    pocket_sample_start = time.time()
 
+    # get number of pharamcophores in each sample
+    if not args.pharm_sizes:
+        pharm_sizes = model.pharm_size_dist.sample_uniformly(args.samples_per_pocket)
+        pharm_sizes = pharm_sizes.tolist()
+    else:
+        pharm_sizes = args.pharm_sizes
+
+    # get initial COM for pharamcophores 
     if args.use_ref_lig_com:
-        # init_pharm_com = dgl.readout_nodes(ref_graph, ntype='pharm', feat='x_0')
-        ref_lig_com = ref_graph.nodes["pharm"].data["x_0"]
+        init_pharm_com = ref_graph.nodes["pharm"].data["x_0"]
     else:
         init_pharm_com = None
 
-    all_pharms = []
 
-    pocket_sample_start = time.time()
-
-    sampled_pharms: List[SampledPharmacophore] = []
-
-    while True:
-        n_pharmacophores_needed = args.samples_per_pocket - len(sampled_pharms)
-        batch_size = min(n_pharmacophores_needed, args.max_batch_size)
-
-        # collect just the batch_size graphs and init_pharm_coms that we need
-        # make copies of graph based on number of pharmacophore centers requested
-        if not args.pharm_sizes:
-            pharm_sizes = model.pharm_size_dist.sample_uniformly(args.samples_per_pocket)
-        else:
-            pharm_sizes = args.pharm_sizes
-        g_batch = copy_graph(ref_graph, batch_size, pharm_feats_per_copy=pharm_sizes)
-        g_batch = dgl.batch(g_batch)
-
-        
-        if args.use_ref_lig_com:
-            init_pharm_com = ref_lig_com.repeat(batch_size,1)
-        else:
-            init_pharm_com = None
-
-        #sample pharmacophores
-        with g_batch.local_scope():
-            batch_pharms = model.sample_given_receptor(g_batch, init_pharm_com=init_pharm_com,visualize_trajectory=args.visualize_trajectory)
-            sampled_pharms.extend(batch_pharms)
-
-        #break out of loop when we have enough pharmacophores
-        if len(sampled_pharms) >= args.samples_per_pocket:
-            break
+    sampled_pharms: List[List[SampledPharmacophore]] = model.sample(
+        ref_graphs=[ref_graph],
+        n_pharms=[pharm_sizes],
+        init_pharm_com=init_pharm_com,
+        visualize_trajectory=args.visualize_trajectory,
+        max_batch_size=args.max_batch_size
+    )
+    sampled_pharms = sampled_pharms[0]
     
     pocket_sample_time = time.time() - pocket_sample_start
-    pocket_sampling_times.append(pocket_sample_time)
-
-    # add sampled pharms to list of all pharms
-    all_pharms.extend(sampled_pharms)
 
     # save pocket sample time
     with open(pocket_dir / 'sample_time.txt', 'w') as f:
         f.write(f'{pocket_sample_time:.2f}')
     with open(pocket_dir / 'sample_time.pkl', 'wb') as f:
-        pickle.dump(pocket_sampling_times, f)
+        pickle.dump([pocket_sample_time], f)
 
     #print the sampling time
     print(f'Pocket {rec_name} sampling time: {pocket_sample_time:.2f} seconds')
