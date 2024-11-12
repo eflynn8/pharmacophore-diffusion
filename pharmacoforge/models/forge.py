@@ -120,7 +120,7 @@ class PharmacoForge(pl.LightningModule):
         scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
         self.set_lr_scheduler_frequency()
 
-        # self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
+        self.lr_scheduler_custom = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
         return {'optimizer': optimizer, 'lr_scheduler': {"scheduler":scheduler,"monitor": self.lr_scheduler_config['monitor'], "interval": self.lr_scheduler_config['interval'], "frequency": self.lr_scheduler_config['frequency']}}
 
     def training_step(self, batch, batch_idx):
@@ -131,7 +131,7 @@ class PharmacoForge(pl.LightningModule):
         epoch_exact = self.current_epoch + batch_idx / self.num_training_batches()
 
         # step the learning rate scheduler
-        #self.lr_scheduler.step_lr(epoch_exact)
+        self.lr_scheduler_custom.step_lr(epoch_exact)
         
         # forward pass, get losses and metrics
         outputs = self.forward(protpharm_graphs)
