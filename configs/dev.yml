@@ -33,7 +33,6 @@ lr_scheduler:
   autoscheduler_config:
     monitor: 'val total loss'
     interval: 'epoch'
-    frequency: 1
 
 
 checkpointing:

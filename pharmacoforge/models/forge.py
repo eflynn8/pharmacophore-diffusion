@@ -103,10 +103,7 @@ class PharmacoForge(pl.LightningModule):
     
     def num_training_steps(self):
         return ceil(len(self.trainer.datamodule.train_dataset) / self.batch_size)
-    
-    def set_lr_scheduler_frequency(self):
-        self.lr_scheduler_config['frequency'] = int(self.num_training_steps() * self.val_loss_interval) + 1
-    
+        
     def configure_optimizers(self):
         try:
             weight_decay = self.lr_scheduler_config['weight_decay']
@@ -129,6 +126,8 @@ class PharmacoForge(pl.LightningModule):
             self.set_lr_scheduler_frequency()
             output['lr_scheduler'] = {"scheduler":scheduler }
             output['lr_scheduler'].update(self.lr_scheduler_config['autoscheduler_config'])
+            frequency = int(self.num_training_steps() * self.val_loss_interval) + 1
+            output['lr_scheduler']['frequency'] = frequency
 
         return output
 
