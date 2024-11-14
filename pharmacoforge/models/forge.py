@@ -117,11 +117,20 @@ class PharmacoForge(pl.LightningModule):
                                lr=self.lr_scheduler_config['base_lr'],
                                weight_decay=weight_decay
         )
-        scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
-        self.set_lr_scheduler_frequency()
 
+        # initialize custom scheduler
         self.lr_scheduler_custom = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
-        return {'optimizer': optimizer, 'lr_scheduler': {"scheduler":scheduler,"monitor": self.lr_scheduler_config['monitor'], "interval": self.lr_scheduler_config['interval'], "frequency": self.lr_scheduler_config['frequency']}}
+
+        output = {'optimizer': optimizer}
+
+        # if necessary, initialize ReduceLROnPlateau scheduler
+        if 'reducelronplateau' in self.lr_scheduler_config:
+            scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
+            self.set_lr_scheduler_frequency()
+            output['lr_scheduler'] = {"scheduler":scheduler }
+            output['lr_scheduler'].update(self.lr_scheduler_config['autoscheduler_config'])
+
+        return output
 
     def training_step(self, batch, batch_idx):
         protpharm_graphs = batch
