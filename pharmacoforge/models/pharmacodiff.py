@@ -50,7 +50,7 @@ class PharmacoDiff(nn.Module):
 
 
     def noised_representation(self, g: dgl.DGLHeteroGraph, pharm_batch_idx: torch.Tensor, prot_batch_idx: torch.Tensor,
-                              eps: Dict[str, torch.Tensor], gamma_t: torch.Tensor, return_com: bool = False ):
+                              eps: Dict[str, torch.Tensor], gamma_t: torch.Tensor ):
         
 
         alpha_t = self.alpha(gamma_t)[pharm_batch_idx][:, None]
@@ -118,7 +118,7 @@ class PharmacoDiff(nn.Module):
 
         # construct noisy versions of the ligand
         gamma_t = self.gamma(t).to(device=device)
-        g,sampled_com = self.noised_representation(g, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t,return_com=True)
+        g,sampled_com = self.noised_representation(g, batch_idxs['pharm'], batch_idxs['prot'], eps, gamma_t)
 
         # predict the noise that was added
         h_dyn, x_dyn = self.dynamics(g, t, batch_idxs)
@@ -202,11 +202,11 @@ class PharmacoDiff(nn.Module):
         #TODO: check this math lol
         #compute the mean (mu) for positions/features of the distribution p(z_s | z_t)
         if self.endpoint_param_coord:
-            mu_pos = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['x_t'] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_x
+            mu_pos = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['x_t'] + (alpha_s*(sigma2_t_given_s)/(sigma_t**2))*pred_x
         else:
             mu_pos = g.nodes['pharm'].data['x_t'] /alpha_t_given_s - var_terms*pred_x
         if self.endpoint_param_feat:
-            mu_feat = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['h_t'] + (alpha_s*sigma2_t_given_s/(sigma_t**2))*pred_h
+            mu_feat = (alpha_t_given_s*(sigma_s**2)/(sigma_t**2))*g.nodes['pharm'].data['h_t'] + (alpha_s*(sigma2_t_given_s)/(sigma_t**2))*pred_h
         else:
             mu_feat = g.nodes['pharm'].data['h_t'] /alpha_t_given_s - var_terms*pred_h
 
@@ -217,7 +217,7 @@ class PharmacoDiff(nn.Module):
         g.nodes['pharm'].data['h_t'] = mu_feat + sigma*feat_noise
 
         #remove pharmacophore COM from system
-        g,_ = self.com_removal(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
+        g,_ = remove_com(g, pharm_batch_idx, prot_batch_idx, com='pharmacophore')
 
         return g
 
@@ -307,7 +307,7 @@ class PharmacoDiff(nn.Module):
         for feat in 'xh':
             g.nodes['pharm'].data[f'{feat}_0'] = g.nodes['pharm'].data[f'{feat}_t']
             
-        g,_ = self.com_removal(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
+        g,_ =remove_com(g, batch_idxs['pharm'], batch_idxs['prot'], com='protein', pharm_feat='x_0')
 
         for n_type in ['pharm', 'prot']:
             g.nodes[n_type].data['x_0'] = g.nodes[n_type].data['x_0'] + init_prot_com[batch_idxs[n_type]]

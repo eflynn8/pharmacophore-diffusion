@@ -24,20 +24,20 @@ lr_scheduler:
   restart_interval: 0 # 0 means no restart
   restart_type: 'linear'
   weight_decay: 1.0e-12
-  monitor: 'val total loss'
-  interval: 'step'
-  frequency: 100 #this needs to be greater than (val_loss_ineterval * number of train iteration per epoch)
   reducelronplateau:
-    mode: 'min'
     factor: 0.1
-    patience: 20
-    min_lr: 1.0e-5
-    verbose: True
+    min_lr: 1.0e-05
+    mode: min
+    patience: 30
+    verbose: true
+  autoscheduler_config:
+    monitor: 'val total loss'
+    interval: 'epoch'
+
 
 checkpointing:
   save_last: True
   save_top_k: 3
-  # monitor: 'val_total_loss'
   monitor: 'val total loss'
   every_n_epochs: 1
 
@@ -113,7 +113,6 @@ flow-matching:
       rbf_dim: 64
       s_message_dim: 64
       v_message_dim: null
-
 diffusion:
   n_timesteps: 100
   precision: 1.0e-5

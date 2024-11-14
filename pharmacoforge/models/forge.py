@@ -103,10 +103,7 @@ class PharmacoForge(pl.LightningModule):
     
     def num_training_steps(self):
         return ceil(len(self.trainer.datamodule.train_dataset) / self.batch_size)
-    
-    def set_lr_scheduler_frequency(self):
-        self.lr_scheduler_config['frequency'] = int(self.num_training_steps() * self.val_loss_interval) + 1
-    
+        
     def configure_optimizers(self):
         try:
             weight_decay = self.lr_scheduler_config['weight_decay']
@@ -117,8 +114,21 @@ class PharmacoForge(pl.LightningModule):
                                lr=self.lr_scheduler_config['base_lr'],
                                weight_decay=weight_decay
         )
-        self.lr_scheduler = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
-        return {'optimizer': optimizer, }
+
+        # initialize custom scheduler
+        self.lr_scheduler_custom = LRScheduler(model=self, optimizer=optimizer, **self.lr_scheduler_config)
+
+        output = {'optimizer': optimizer}
+
+        # if necessary, initialize ReduceLROnPlateau scheduler
+        if 'reducelronplateau' in self.lr_scheduler_config:
+            scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
+            output['lr_scheduler'] = {"scheduler":scheduler }
+            output['lr_scheduler'].update(self.lr_scheduler_config['autoscheduler_config'])
+            frequency = int(self.num_training_steps() * self.val_loss_interval) + 1
+            output['lr_scheduler']['frequency'] = frequency
+
+        return output
 
     def training_step(self, batch, batch_idx):
         protpharm_graphs = batch
@@ -128,7 +138,7 @@ class PharmacoForge(pl.LightningModule):
         epoch_exact = self.current_epoch + batch_idx / self.num_training_batches()
 
         # step the learning rate scheduler
-        self.lr_scheduler.step_lr(epoch_exact)
+        self.lr_scheduler_custom.step_lr(epoch_exact)
         
         # forward pass, get losses and metrics
         outputs = self.forward(protpharm_graphs)
@@ -320,5 +330,3 @@ class PharmacoForge(pl.LightningModule):
             per_pocket_samples.append(sampled_pharms[start_idx:end_idx])
         
         return per_pocket_samples
-
-
