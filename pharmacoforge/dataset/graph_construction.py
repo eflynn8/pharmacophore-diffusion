@@ -51,10 +51,6 @@ def build_initial_complex_graph(
         pp_cutoff = graph_config['radius']['pp']
         k_local = graph_config['knn']['pp']
         pp_edges = build_clustered_graph(prot_atom_positions, cutoff=pp_cutoff, k_local=k_local)
-    elif pp_graph_type == 'clustered':
-        pp_cutoff = graph_config['radius']['pp']
-        k_local = graph_config['knn']['pp']
-        pp_edges = build_clustered_graph(prot_atom_positions, cutoff=pp_cutoff, k_local=k_local)
     else:
         raise ValueError(f'pp_graph_type {pp_graph_type} not recognized')
 
