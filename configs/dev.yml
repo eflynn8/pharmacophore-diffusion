@@ -30,10 +30,6 @@ lr_scheduler:
     mode: min
     patience: 30
     verbose: true
-    min_lr: 1.0e-05
-    mode: min
-    patience: 30
-    verbose: true
   autoscheduler_config:
     monitor: 'val total loss'
     interval: 'epoch'
