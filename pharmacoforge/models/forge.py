@@ -123,7 +123,6 @@ class PharmacoForge(pl.LightningModule):
         # if necessary, initialize ReduceLROnPlateau scheduler
         if 'reducelronplateau' in self.lr_scheduler_config:
             scheduler=optim.lr_scheduler.ReduceLROnPlateau(optimizer,**self.lr_scheduler_config['reducelronplateau'])
-            self.set_lr_scheduler_frequency()
             output['lr_scheduler'] = {"scheduler":scheduler }
             output['lr_scheduler'].update(self.lr_scheduler_config['autoscheduler_config'])
             frequency = int(self.num_training_steps() * self.val_loss_interval) + 1
