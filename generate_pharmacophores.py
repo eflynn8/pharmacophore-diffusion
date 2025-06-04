@@ -58,6 +58,9 @@ def parse_arguments():
     
     if args.ref_ligand_file is None and len(args.residue_list) == 0:
         raise ValueError('Either ref_ligand or residue_list must be specified')
+    
+    if args.ref_ligand_file is not None and len(args.residue_list) != 0:
+        print("WARNING: Both reference ligand file and residue list specified. Reference ligand will be used to define pocket in this case.")
 
     return args
 
