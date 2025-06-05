@@ -29,15 +29,16 @@ from pharmacoforge.utils import write_pharmacophore_file, copy_graph, get_prot_a
 def parse_arguments():
     p = argparse.ArgumentParser()
     p.add_argument('receptor_file', type=Path, help='PDB file of the receptor')
-    p.add_argument('ref_ligand_file', type=Path, help='sdf file of ligand used to define the pocket')
+    p.add_argument('--ref_ligand_file', type=Path, help='sdf file of ligand used to define the pocket')
+    p.add_argument('--residue_list', nargs="+", type=str, default=[], help="Residues that define the pocket in the form chain ID:residue idx")
     p.add_argument('--ckpt', type=Path, help='Path to checkpoint file. Must be inside model dir.', default=None)
     p.add_argument('--model_dir', type=Path, default=None, help='Directory of output from a training run. Will use last.ckpt in this directory.')
     p.add_argument('--samples_per_pocket', type=int, default=1, help="number of samples generated per pocket")
-    p.add_argument('--pharm_sizes', nargs="*", type=int, default=[], help="number of pharmacophore centers in each sample, must be of length samples per pocket")
+    p.add_argument('--pharm_sizes', nargs="+", type=int, default=[], help="number of pharmacophore centers in each sample, must be of length samples per pocket")
     p.add_argument('--output_dir', type=str, default='generated_pharms/')
     p.add_argument('--receptor_name', type=str, default=None)
     p.add_argument('--max_batch_size', type=int, default=128, help='maximum feasible batch size due to memory constraints')
-    p.add_argument('--seed', type=int, default=42, help='random seed as an integer. by default, no random seed is set.')
+    p.add_argument('--seed', type=int, default=42, help='random seed as an integer.')
     p.add_argument('--use_ref_lig_com', action='store_true', help="Initialize each pharmacophore's position at the reference ligand's center of mass" )
     p.add_argument('--visualize_trajectory', action='store_true', help="Visualize trajectories of generated pharmacophores" )
     p.add_argument('--metrics', action='store_true', help='compute metrics on generated pharmacophores')
@@ -54,6 +55,12 @@ def parse_arguments():
     if args.pharm_sizes:
         if len(args.pharm_sizes) != args.samples_per_pocket:
             raise ValueError("If pharm_sizes list is provided, must be of length sample per pocket")
+    
+    if args.ref_ligand_file is None and len(args.residue_list) == 0:
+        raise ValueError('Either ref_ligand or residue_list must be specified')
+    
+    if args.ref_ligand_file is not None and len(args.residue_list) != 0:
+        print("WARNING: Both reference ligand file and residue list specified. Reference ligand will be used to define pocket in this case.")
 
     return args
 
@@ -110,10 +117,13 @@ def onehot_encode_elements(atom_elements: Iterable, element_map: Dict[str, int])
     return onehot_elements
 
 ## Function to take in pocket PDB or mmcif and the ligand SDF to build the graph based on the atoms in the pocket
-def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
+def process_ligand_and_pocket(rec_file: Path, output_dir: Path,
                                   prot_element_map,
                                   graph_cutoffs: dict,
-                                  pocket_cutoff: float, remove_hydrogen: bool = True):
+                                  pocket_cutoff: float, lig_file: Path = None, residue_list: list = [], remove_hydrogen: bool = True):
+    
+    if lig_file is None and len(residue_list) == 0:
+        raise ValueError(f"Either reference ligand or pocket residue list must be provided.")
     
     if rec_file.suffix == '.pdb':
         parser = PDBParser(QUIET=True)
@@ -124,33 +134,42 @@ def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
 
     rec_struct = parser.get_structure('', rec_file)
 
-    _, lig_coords = parse_ligand(lig_file, remove_hydrogen=remove_hydrogen)
+    if lig_file is not None:
 
-    # make ligand data into torch tensors
-    lig_coords = torch.tensor(lig_coords, dtype=torch.float32)
+        _, lig_coords = parse_ligand(lig_file, remove_hydrogen=remove_hydrogen)
 
-    # get COM for ligands to use as pharm initial positions
-    lig_com = lig_coords.mean(dim=0).reshape((1, 3))
+        # make ligand data into torch tensors
+        lig_coords = torch.tensor(lig_coords, dtype=torch.float32)
 
-    # get residues which constitute the binding pocket
-    pocket_residues = []
-    for residue in rec_struct.get_residues():
+        # get COM for ligands to use as pharm initial positions
+        init_com = lig_coords.mean(dim=0).reshape((1, 3))
 
-        # check if residue is a standard amino acid
-        is_residue = is_aa(residue.get_resname(), standard=True)
-        if not is_residue:
-            continue
+        # get residues which constitute the binding pocket
+        pocket_residues = []
+        for residue in rec_struct.get_residues():
 
-        # get atomic coordinates of residue
-        res_coords = np.array([a.get_coord() for a in residue.get_atoms()])
+            # check if residue is a standard amino acid
+            is_residue = is_aa(residue.get_resname(), standard=True)
+            if not is_residue:
+                continue
 
-        # check if residue is interacting with protein
-        min_rl_dist = cdist(lig_coords, res_coords).min()
-        if min_rl_dist < pocket_cutoff:
-            pocket_residues.append(residue)
+            # get atomic coordinates of residue
+            res_coords = np.array([a.get_coord() for a in residue.get_atoms()])
 
-    if len(pocket_residues) == 0:
-        raise ValueError(f'no valid pocket residues found.')
+            # check if residue is interacting with protein
+            min_rl_dist = cdist(lig_coords, res_coords).min()
+            if min_rl_dist < pocket_cutoff:
+                pocket_residues.append(residue)
+
+        if len(pocket_residues) == 0:
+            raise ValueError(f'no valid pocket residues found.')
+        
+    else:
+        struct = rec_struct[0]
+        pocket_residues = [struct[res.split(':')[0]][(' ', int(res.split(':')[1]), ' ')] for res in residue_list]
+        pocket_coords = np.array([a.get_coord() for residue in pocket_residues for a in residue.get_atoms()])
+        pocket_coords = torch.tensor(pocket_coords, dtype=torch.float32)
+        init_com = pocket_coords.mean(dim=0).reshape((1, 3))
 
     if remove_hydrogen:
         atom_filter = lambda a: a.element != "H"
@@ -187,7 +206,7 @@ def process_ligand_and_pocket(rec_file: Path, lig_file: Path, output_dir: Path,
         prot_atom_positions=pocket_coords,
         prot_atom_features=pocket_atom_features,
         cutoffs=graph_cutoffs,
-        pharm_atom_positions=lig_com,
+        pharm_atom_positions=init_com,
         pharm_atom_features=torch.zeros((1,6))
     )
 
@@ -258,9 +277,13 @@ def main():
     # process the receptor and pocket files
     rec_file = args.receptor_file
     ref_lig_file = args.ref_ligand_file
+    pocket_residues = args.residue_list
 
-    if not rec_file.exists() or not ref_lig_file.exists():
-        raise ValueError('receptor or reference ligand file does not exist')
+    if not rec_file.exists():
+        raise ValueError('receptor file does not exist')
+    
+    if ref_lig_file and not ref_lig_file.exists():
+        raise ValueError('ligand file does not exist')
     
     if not args.receptor_name:
         rec_name = rec_file.name.split(".")[0]
@@ -272,7 +295,8 @@ def main():
     
     ## TODO: Fix to be correct configs
     ref_graph: dgl.DGLHeteroGraph = process_ligand_and_pocket(
-                                rec_file, ref_lig_file, pocket_dir,
+                                rec_file, pocket_dir, lig_file=ref_lig_file,
+                                residue_list=pocket_residues,
                                 prot_element_map=prot_element_map,
                                 graph_cutoffs=config['graph']['graph_cutoffs'],
                                 pocket_cutoff=dataset_config['pocket_cutoff'], 
@@ -346,7 +370,8 @@ def main():
     ref_files_dir=pocket_dir / 'reference_files'
     ref_files_dir.mkdir(exist_ok=True)
     shutil.copy(rec_file, ref_files_dir / rec_file.name)
-    shutil.copy(ref_lig_file, ref_files_dir / ref_lig_file.name)
+    if ref_lig_file is not None:
+        shutil.copy(ref_lig_file, ref_files_dir / ref_lig_file.name)
 
     #write out pharmacophores
     ph_files = []

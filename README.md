@@ -12,11 +12,15 @@ Try out PharmacoForge using the Colab notebook below! From here, you can use a p
 
 To generate new pharmacophores for a receptor, you will need a PDB file of the receptor and to designate the desired binding pocket with either a reference ligand as an SDF file or to specify the residues that make up the binding pocket as a list. Below is a template command for generating 3 pharmacophores for a pocket specified by a reference ligand:
 
-`python generate_pharmacophores.py receptor_file /path/to/receptor.pdb ref_ligand_file /path/to/ligand.sdf --model_dir /path/to/trained/model --samples_per_pocket 3 --pharm_sizes 3 4 5 --visualize_trajectory`
+`python generate_pharmacophores.py receptor_file /path/to/receptor.pdb --ref_ligand_file /path/to/ligand.sdf --model_dir /path/to/trained/model --samples_per_pocket 3 --pharm_sizes 3 4 5 --visualize_trajectory`
 
 Here is a full example command for generating 30 pharmacophores of sizes 3-8 centers:
 
-`python generate_pharmacophores.py receptor.pdb crystal_ligand.sdf --ckpt runs/trained_model/checkpoints/last.ckpt --visualize_trajectory --output_dir generated_pharms/samples --receptor_name xiap --max_batch_size 32 --samples_per_pocket 30 --pharm_sizes 3 3 3 3 3 4 4 4 4 4 5 5 5 5 5 6 6 6 6 6 7 7 7 7 7 8 8 8 8 8 --metrics`
+`python generate_pharmacophores.py receptor.pdb --ref_ligand_file crystal_ligand.sdf --ckpt runs/trained_model/checkpoints/last.ckpt --visualize_trajectory --output_dir generated_pharms/samples --receptor_name xiap --max_batch_size 32 --samples_per_pocket 30 --pharm_sizes 3 3 3 3 3 4 4 4 4 4 5 5 5 5 5 6 6 6 6 6 7 7 7 7 7 8 8 8 8 8 --metrics`
+
+Here is an example command to generate 3 pharmacophores for a pocket specified by a residue list:
+
+`python generate_pharmacophores.py receptor_file /path/to/receptor.pdb --residue_list "A:10" "A:11" "A:12" "A:13" "A:14" --model_dir /path/to/trained/model --samples_per_pocket 3 --pharm_sizes 3 4 5 --visualize_trajectory`
 
 The full options for generating pharmacophores are as follows:
 - samples_per_pocket: Number of pharmacophore samples generated for each receptor pocket
@@ -35,7 +39,7 @@ An example yaml file is provided in configs/
 
 ## Visualize pharmacophores in Pymol
 
-`pymol generate_pharmacophores --pocket_dir /path/to/pocket --load_reference`
+`pymol pymol_generated.py --pocket_dir /path/to/pocket --load_reference`
 
 ## Making this repo pip installable
 
