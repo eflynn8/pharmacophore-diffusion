@@ -1,5 +1,7 @@
 # PharmacoForge
 
+### **Read the full paper here: [PharmacoForge: pharmacophore generation with diffusion models](https://www.frontiersin.org/journals/bioinformatics/articles/10.3389/fbinf.2025.1628800/full)**
+
 PharmacoForge is a diffusion model capable of generating pharmacophores of user-specified size for a receptor protein pocket. Pharmacophores are made up of centers describing areas of interaction between a ligand and a receptor; each center has 3D coordinates and a feature type (aromatic, hydrogen acceptor, hydrogen donor, hydrophobic, negative ion, positive ion). Pharmacophore size is defined as the number of pharmacophore centers. Generated pharmacophores can be used to screen databases using the [Pharmit command line tool](https://github.com/dkoes/pharmit).
 
 ## Colab Notebook
