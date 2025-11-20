@@ -1,7 +1,8 @@
 # PharmacoForge
 
+https://ssh.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/dkoes/pharmacophore-diffusion&cloudshell_print=./deploy.sh
 
-
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://ssh.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/dkoes/pharmacophore-diffusion&cloudshell_workspace=.&cloudshell_print=./deploy.sh)
 
 ### **Read the full paper here: [PharmacoForge: pharmacophore generation with diffusion models](https://www.frontiersin.org/journals/bioinformatics/articles/10.3389/fbinf.2025.1628800/full)**
 
