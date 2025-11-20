@@ -1,8 +1,6 @@
 # PharmacoForge
 
 
-[![Run on Google Cloud](https://deploy.cloud.run/button.svg)](https://deploy.cloud.run)
-
 
 
 ### **Read the full paper here: [PharmacoForge: pharmacophore generation with diffusion models](https://www.frontiersin.org/journals/bioinformatics/articles/10.3389/fbinf.2025.1628800/full)**
