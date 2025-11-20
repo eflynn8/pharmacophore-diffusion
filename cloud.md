@@ -5,7 +5,12 @@
 Run the following code in the terminal.  You will have to select a project.  The webapp will be running at the link provided.
 
 
+## 1. Select Project
+<walkthrough-project-setup billing="true"></walkthrough-project-setup>
+
+## 2 Run Command
+
 ```bash
-gcloud config set project {{project-id}} && bash deploy.sh
+bash deploy.sh
 ```
 

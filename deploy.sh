@@ -69,6 +69,7 @@ if [ "$QUOTA_LIMIT" -gt 0 ]; then
     --gpu 1 \
     --min-instances=0 \
     --max-instances=1 \
+    --no-gpu-zonal-redundancy \
     --gpu-type $GPU_TYPE
 
 else
