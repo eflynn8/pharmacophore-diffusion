@@ -47,9 +47,7 @@ gcloud services enable run.googleapis.com compute.googleapis.com artifactregistr
 echo "🔍 Checking for $GPU_TYPE quota in $REGION..."
 
 # Fetch the specific limit for the requested GPU metric in the region
-QUOTA_LIMIT=$(gcloud compute regions describe $REGION \
-  --format="value(quotas.limit)" \
-  --filter="quotas.metric=$QUOTA_METRIC")
+QUOTA_LIMIT=$(gcloud compute regions describe $REGION --format="json" | jq -r ".quotas[] | select(.metric == \"$QUOTA_METRIC\") | .limit")
 
 # Treat empty output as 0
 if [[ -z "$QUOTA_LIMIT" ]]; then QUOTA_LIMIT=0; fi
@@ -89,10 +87,8 @@ else
     --cpu 4 \
     --memory 16Gi \
     --min-instances=0 \
-    --max-instances=1 \    
-    --set-env-vars="GPU_AVAILABLE=false"
-    
-    # We pass an env var so your code knows it's in CPU mode
+    --max-instances=1 
+
 fi
 
 echo "🎉 Deployment attempt finished."

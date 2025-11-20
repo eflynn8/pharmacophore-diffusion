@@ -5,6 +5,7 @@ import tempfile
 import py3Dmol
 import streamlit.components.v1 as components
 import json
+import torch
 
 # Set page configuration
 st.set_page_config(layout="wide", page_title="PharmacoForge")
@@ -120,7 +121,7 @@ if generate_btn:
     elif pocket_method == "Residue List" and not residue_list_str:
         st.error("Please specify the residue list.")    
     else:
-        with st.spinner("Running model...",show_time=True,width='stretch'):
+        with st.spinner("Running model... "+ '' if torch.cuda.is_available() else ' <b>(No GPU detected, will be several minutes)</b>',show_time=True,width='stretch'):
             with tempfile.TemporaryDirectory() as tmp_dir:
                 # Save inputs to temp files
                 receptor_path = os.path.join(tmp_dir, uploaded_receptor.name)

@@ -6,8 +6,10 @@
 
 
 
-## Run the follow code in the terminal
+## Run the following code in the terminal
 
 ```bash
-bash deploy.sh
+gcloud config set project {{project-id}} && bash deploy.sh
 ```
+
+## Click on the link in the terminal
