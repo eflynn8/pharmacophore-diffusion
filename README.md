@@ -1,6 +1,7 @@
 # PharmacoForge
 
-[![Run on Google Cloud](https://storage.googleapis.com/cloudrun/button.svg)](https://deploy.cloud.google.com/?url=https://storage.googleapis.com/koes-data/clouddeploy.yaml)
+
+[![Run on Google Cloud](https://deploy.cloud.run/button.svg)](https://deploy.cloud.run)
 
 
 
