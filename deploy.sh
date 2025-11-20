@@ -12,10 +12,31 @@ echo "🚀 Starting Smart Deployment for $SERVICE_NAME..."
 
 # 1. Get Project ID
 PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
-if [ -z "$PROJECT_ID" ]; then
-  echo "❌ No project selected. Please select a project in the Cloud Shell toolbar."
-  exit 1
+
+
+# 2. If no project is set, ask the user to pick one
+if [[ -z "$PROJECT_ID" || "$PROJECT_ID" == "(unset)" ]]; then
+  echo "⚠️  No project is currently selected."
+  echo "📋 Here are your available projects:"
+  echo "------------------------------------"
+  
+  # List projects nicely
+  gcloud projects list --format="table(projectId, name)"
+  
+  echo "------------------------------------"
+  echo "👉 Please copy and paste the PROJECT_ID you want to use below:"
+  read -p "Project ID: " USER_INPUT_PROJECT
+  
+  if [ -z "$USER_INPUT_PROJECT" ]; then
+    echo "❌ No Project ID provided. Exiting."
+    exit 1
+  fi
+
+  # Set the project
+  gcloud config set project "$USER_INPUT_PROJECT"
+  PROJECT_ID=$USER_INPUT_PROJECT
 fi
+
 echo "✅ Using Project: $PROJECT_ID"
 
 # 2. Enable APIs
