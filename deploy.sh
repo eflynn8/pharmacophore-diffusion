@@ -84,7 +84,7 @@ else
     --region $REGION \
     --allow-unauthenticated \
     --port 8080 \
-    --cpu 4 \
+    --cpu 16 \
     --memory 16Gi \
     --min-instances=0 \
     --max-instances=1 
