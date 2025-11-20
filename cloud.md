@@ -1,12 +1,12 @@
 # Deploy PharmacoForge on Google Cloud
 
 
+## Select your project
 <walkthrough-project-setup billing="true"></walkthrough-project-setup>
 
 
-<walkthrough-code-snippet>
-bash deploy.sh
-</walkthrough-code-snippet>
+
+## Run the follow code in the terminal
 
 ```bash
 bash deploy.sh
