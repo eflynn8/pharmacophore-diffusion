@@ -1,7 +1,5 @@
 # Deploy PharmacoForge on Google Cloud
 
-```html
-<walkthrough-code-snippet>
+```bash
 bash deploy.sh
-</walkthrough-code-snippet>
 ```
