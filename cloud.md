@@ -8,6 +8,8 @@
 
 ## Run the following code in the terminal
 
+<walkthrough-code-snippet>gcloud config set project {{project-id}} && bash deploy.sh</walkthrough-code-snippet>
+
 ```bash
 gcloud config set project {{project-id}} && bash deploy.sh
 ```
