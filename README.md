@@ -1,8 +1,6 @@
 # PharmacoForge
 
-[![Run on Google Cloud](https://button.cloud.google.com/schema/v1/button.svg)](https://deploy.cloud.google.com/github/dkoes/pharmacophore-diffusion?skip_cache=true&repository=https://github.com/dkoes/pharmacophore-diffusion&project={{project}})
-
-[![Run on Google Cloud](https://button.cloud.google.com/schema/v1/button.svg)](https://deploy.cloud.google.com/?url=https://storage.googleapis.com/koes-data/clouddeploy.yaml)
+[![Run on Google Cloud](https://storage.googleapis.com/cloudrun/button.svg)](https://deploy.cloud.google.com/?url=https://storage.googleapis.com/koes-data/clouddeploy.yaml)
 
 
 
