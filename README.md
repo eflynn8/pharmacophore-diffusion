@@ -10,6 +10,10 @@ Try out PharmacoForge using the Colab notebook below! From here, you can use a p
 
 [PharmacoForge Colab](https://colab.research.google.com/drive/1XZViTC6BiNN1tF0PIhZ48j3wHocUklHJ?usp=sharing)
 
+## Demo Webapp
+
+[WebApp](https://bits.csb.pitt.edu/forge/)
+
 ## Generating new pharmacophores for a pocket
 
 To generate new pharmacophores for a receptor, you will need a PDB file of the receptor and to designate the desired binding pocket with either a reference ligand as an SDF file or to specify the residues that make up the binding pocket as a list. Below is a template command for generating 3 pharmacophores for a pocket specified by a reference ligand:
