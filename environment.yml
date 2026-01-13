@@ -1,0 +1,30 @@
+name: forge-env
+channels:
+  - pytorch
+  - nvidia
+  - pyg
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pytorch==2.4.0
+  - pytorch-cuda=12.1
+  - torchvision
+  - torchaudio
+  - torchdata=0.8.0
+  - pytorch-lightning
+  - dglteam/label/th24_cu121::dgl
+  - pytorch-cluster
+  - pytorch-scatter
+  - rdkit
+  - openbabel
+  - biopython
+  - py3dmol
+  - pandas
+  - streamlit
+  - pip
+  - ipython_genutils
+  - pydantic
+  - pip:
+    - streamlit-javascript
+
